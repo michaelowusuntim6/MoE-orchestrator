@@ -81,6 +81,20 @@ timeout_seconds: 900
 # Result of the last downloader run (143 ok / 49 skipped / 0 failed).
 last_run_status: datasets/downloaded/_status.json
 
+## Formatted_datasets
+
+# Output of datasets/scripts/format_for_training.py (canonical Qwen3.5
+# chat records: {"messages": [{"role","content"}, ...]}).
+formatted_root: datasets/formatted
+formatter_version: qwen35-chat-v1
+val_fraction: 0.02
+dedup: true
+min_chars: 32
+max_chars: 64000
+enable_thinking: false
+seed: 42
+chat_template_source: models/Qwen3.5-0.8B/tokenizer_config.json#chat_template
+
 ## Training
 
 # The base model is Qwen3.5 (model_type qwen3_5). transformers 4.x cannot
@@ -106,7 +120,19 @@ num_train_epochs: 1
 batch_size: 1
 grad_accumulation: 4
 learning_rate: 0.0002
-max_length: 128
+# Set from measurement, not guesswork (scripts/long_context_probe.py, all with
+# gradient_checkpointing=True, wrapped in a 12G systemd memory cap):
+#   41 tok -> 5.1 GiB peak,   4.9 s/step   (official --smoke)
+#  880 tok -> 9.3 GiB peak, 116.5 s/step
+# 1804 tok -> 12.4 GiB peak, 271 s/step (thrashing)
+# 4096/6144/8192 tok -> OOM-killed at the 12G cap
+# The driver is the fp32 LM head over a 248,320-token vocab (~1 GB of logits
+# plus ~1 GB of gradient per 1024 tokens) on top of 3.2 GiB of fp32 weights,
+# not the (linear) attention. 1024 is the largest value that trains without
+# thrashing. Consequence: coding_debug records (p50 ~4.9k tokens) truncate
+# and are dropped by finetune.py's all-masked filter -- see
+# docs/DATA_PIPELINE.md section 7 and docs/EXPERT_PLAN.md.
+max_length: 1024
 gradient_checkpointing: true
 save_strategy: epoch
 save_total_limit: 1
@@ -122,9 +148,18 @@ ir3de_lambda: 0.01
 
 ## Experts
 
-# Name and dataset root for each expert. Populate as experts
-# are trained.
-expert_count: 0
+# Expert -> source categories/files. See docs/EXPERT_PLAN.md.
+expert_count: 8
+expert_map:
+  - code_python: python
+  - code_cpp: cpp
+  - debug_review: coding_debug
+  - agent_tool: agent_tool
+  - reasoning: reasoning_algorithms
+  - security: security_data
+  - android: android
+  - linux_kernel: linux, kernel, generated_lineageos
+  - mql5_optional: generated_mql5
 
 ## UI
 

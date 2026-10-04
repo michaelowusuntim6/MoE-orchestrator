@@ -1,8 +1,8 @@
 # MoE Orchestrator — master TODO list
 
-Last updated: 2026-10-04T19:57:03Z
-Current phase: 1 (dataset download complete; inventory + audit done)
-Last completed step: 1.4 dataset manifest built (143 datasets, 9.44 GiB, ~4.39M records)
+Last updated: 2026-10-04T21:40:00Z
+Current phase: 2 (data formatted for training; expert plan written)
+Last completed step: 1.5.9 tokenize-and-drop verified for all 12 corpora
 
 ## Phase 0 — Scaffold
 - [x] 0.1 Create ~/MoE-orchestrator/ and subfolders
@@ -30,8 +30,19 @@ Last completed step: 1.4 dataset manifest built (143 datasets, 9.44 GiB, ~4.39M 
 
 ## Phase 2 — Expert selection
 - [x] 2.1 Group downloaded datasets by expert category (in `_manifest.md`)
-- [ ] 2.2 Decide how many experts to train
-- [ ] 2.3 Write the expert plan
+- [x] 2.2 Decide how many experts to train — 8 + 1 optional (see `docs/EXPERT_PLAN.md`)
+- [x] 2.3 Write the expert plan — `docs/EXPERT_PLAN.md`
+
+## Phase 1.5 — Format datasets for training
+- [x] 1.5.1 Research the Qwen3.5 chat template (docs/QWEN_CHAT_TEMPLATE.md)
+- [x] 1.5.2 Edit every data/tokenization .py file to use apply_chat_template
+- [x] 1.5.3 Survey every dataset's record shape (datasets/downloaded/_format_survey.json)
+- [x] 1.5.4 Design the canonical record schema (docs/DATA_PIPELINE.md)
+- [x] 1.5.5 Write datasets/scripts/format_for_training.py
+- [x] 1.5.6 Dry-run passes
+- [x] 1.5.7 Real run per category — 12 corpora written
+- [x] 1.5.8 Template verification passes for all 12 categories
+- [x] 1.5.9 Tokenize-and-drop verified at max_length=1024 (docs/DATA_PIPELINE.md §7)
 
 ## Phase 3 — Fine-tune experts
 - [ ] 3.1 Fine-tune the first expert with `training/finetune.py`
@@ -87,6 +98,20 @@ contains LoFT's sources. Upstream tracking is manual and documented in
 
 ## Progress log
 
+[20:10:00] Step 0 research: Qwen3.5 template found in tokenizer_config.json (identical to chat_template.jinja); ids im_start=248045 im_end=248046 endoftext=248044; eos == <|im_end|> (no quirk)
+[20:12:00] Found return_assistant_tokens_mask=True returns an ALL-ZERO mask (template has no {% generation %}); implemented orchestrator/chat_template.py assistant_span_mask (prefix method) instead
+[20:20:00] Rewrote training/finetune.py to the canonical {"messages":[...]} schema with apply_chat_template + assistant-only labels; no hand-rolled prompts
+[20:24:00] Surveyed 143 datasets: chat_messages=66, instruction_response=46, unknown=13, text_only=8, tool_calls=4, classification=3, no_data=2, code_only=1
+[20:30:00] Reclassified all 13 unknowns by inspecting 10 records each (agent session logs, Tau2 traces, Topical-Chat arrays, HydraLM grouped rows, FinQA/NLP-eval/Rowden/AndroidControl field names); 14 datasets documented as excluded
+[20:35:00] Wrote datasets/scripts/format_for_training.py (streaming adapters, dedup, reject taxonomy, deterministic hash split, --verify-template, --sample)
+[20:40:00] Bug: prefix-based dedup key collapsed kernel 5,000 -> 20; switched to exact full-record hashing (documented in DATA_PIPELINE.md)
+[20:45:00] Formatted 11 categories; all passed --verify-template after fixing the verifier to check the untruncated render
+[21:00:00] OOM killed the 8192-token probe; system now has 64G zram (swappiness 180)
+[21:05:00] agent_tool re-run under systemd-run MemoryMax=12G with 4 workers: 663,056 train / 13,343 val, --verify-template PASS
+[21:20:00] Long-context probe (gradient checkpointing on, 12G cap): 41tok=5.1GiB/4.9s, 880tok=9.3GiB/116s, 1804tok=12.4GiB/271s, 4096/6144/8192 = OOM-killed
+[21:35:00] Final max_length=1024 (fp32 LM head over 248k vocab is the driver). Tokenize-and-drop run for all 12 corpora
+[21:40:00] docs/DATA_PIPELINE.md §7, docs/EXPERT_PLAN.md, config.md updated with measured numbers
+
 [19:40:00] AUDIT: verified one commit (372b863), tree clean, 143 datasets downloaded
 [19:41:00] A.5 download integrity: 143/143 OK dirs present and non-empty, 0 missing, 0 empty, 0 untracked dirs; real on-disk size 9.44 GiB (API estimate 14.75 GiB)
 [19:42:00] FIX: status `bytes` came from HF `usedStorage` (overstated by ~5.7 GB). Patched downloader to log real on-disk bytes; `_status.json` now has `bytes` (on-disk) + `bytes_api_estimate`
@@ -113,9 +138,17 @@ contains LoFT's sources. Upstream tracking is manual and documented in
 
 ## Blockers
 
-- BLOCKER: `kernel` (1 dataset), `mql5` (0), `lineage_device` (0) have too
-  little data for a dedicated expert. Plan: supplement kernel with
-  datasets/generated/ + more sources; skip mql5/lineage_device until data
-  exists. Exact error: none (data gap, not a tool failure).
-- BLOCKER (resolved): transformers 4.37.2 cannot load `qwen3_5` — resolved
-  by B.1 Option 2 (`training/finetune.py` + `venv-inference`).
+- BLOCKER (resolved): `kernel` folded into the `linux_kernel` expert together
+  with `linux` + `generated_lineageos` (25,467 records).
+- BLOCKER (resolved): `mql5` has no downloaded data; `generated_mql5`
+  (3,032 records) is formatted and kept as the optional `mql5_optional` expert.
+- BLOCKER: **`debug_review` (coding_debug) is not trainable at max_length=1024**
+  — 98% of records truncate and 97.5% end with an all-zero assistant mask
+  (code traces have p50 ~4.9k tokens). Raising max_length is not possible on
+  this machine (2048 tokens = 12.4 GiB and thrashing; 4096+ OOM). Plan:
+  load the base weights in bf16 and/or use a chunked/fused cross-entropy so
+  the 248k-vocab logits are never materialised, then re-run
+  `scripts/tokenize_and_drop_check.py --category coding_debug`. The formatted
+  corpus is already complete; only the training-side memory limit blocks it.
+- BLOCKER (resolved earlier): transformers 4.37.2 cannot load `qwen3_5` —
+  resolved by B.1 Option 2 (`training/finetune.py` + `venv-inference`).

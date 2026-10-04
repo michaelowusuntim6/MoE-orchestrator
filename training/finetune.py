@@ -1,28 +1,26 @@
 #!/usr/bin/env python3
 """LoRA fine-tuning entrypoint for Qwen3.5 experts (CPU, transformers 5.x).
 
-Why this exists next to LoFT: LoFT pins transformers 4.37.2 (and hardcodes
-its LoRA hyperparameters), but the base model is ``model_type: qwen3_5``,
-which only transformers 5.x understands. This script is the supported
-training path for this project and reads every hyperparameter from
-config.md. LoFT stays vendored for the llama.cpp merge/export/quantize/
-chat utilities.
+Data contract: a JSONL file of canonical records
 
-Run with the inference venv (transformers 5.x):
+    {"messages": [{"role": "user", "content": "..."},
+                  {"role": "assistant", "content": "..."}]}
+
+Tokenization always goes through the model's own chat template
+(``orchestrator.chat_template``); nothing here builds prompt strings by hand.
+Loss is assistant-only (the prompt is masked to -100).
+
+LoFT's own finetune path is legacy (transformers 4.37.2 + hardcoded LoRA
+hyperparameters); LoFT is kept only for merge/export/quantize/chat.
 
     ./venv-inference/bin/python training/finetune.py --smoke
     ./venv-inference/bin/python training/finetune.py --train --dataset <file.jsonl> --expert <name>
-
-``--smoke`` builds the model + LoRA adapter, runs ONE forward/backward pass
-on a tiny batch and exits without saving anything. ``--train`` performs
-real training; it is never the default.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -30,12 +28,16 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from orchestrator.chat_template import render, template_kwargs, tokenize_chat  # noqa: E402
 from orchestrator.config import Config  # noqa: E402
 
 DEFAULT_CONFIG = PROJECT_ROOT / "config.md"
 
-SMOKE_INSTRUCTION = "In one sentence, what is a mixture of experts?"
-SMOKE_OUTPUT = "A mixture of experts routes each input to one of several specialized sub-models."
+SMOKE_MESSAGES = [
+    {"role": "user", "content": "In one sentence, what is a mixture of experts?"},
+    {"role": "assistant",
+     "content": "A mixture of experts routes each input to one of several specialized sub-models."},
+]
 
 
 def resolve_config(explicit: str | None) -> Path:
@@ -47,17 +49,35 @@ def resolve_config(explicit: str | None) -> Path:
     raise SystemExit(f"error: config.md not found (tried {[str(c) for c in candidates]})")
 
 
-def format_example(tokenizer, instruction: str, inp: str, output: str) -> str:
-    """Render one instruction/response pair using the model chat template."""
-    prompt = instruction if not inp else f"{instruction}\n\n{inp}"
-    messages = [
-        {"role": "user", "content": prompt},
-        {"role": "assistant", "content": output},
-    ]
-    try:
-        return tokenizer.apply_chat_template(messages, tokenize=False)
-    except Exception:
-        return f"### Instruction:\n{prompt}\n\n### Response:\n{output}"
+def record_to_messages(record: dict) -> list[dict] | None:
+    """Canonical `messages`, or a legacy instruction/input/output record."""
+    messages = record.get("messages")
+    if isinstance(messages, list) and messages:
+        return messages
+    if "output" in record and ("instruction" in record or "prompt" in record):
+        prompt = record.get("instruction") or record.get("prompt") or ""
+        extra = record.get("input") or ""
+        if extra:
+            prompt = f"{prompt}\n\n{extra}"
+        return [{"role": "user", "content": prompt},
+                {"role": "assistant", "content": record["output"]}]
+    return None
+
+
+def load_examples(path: Path, limit: int | None = None) -> list[dict]:
+    rows = []
+    text = path.read_text(encoding="utf-8").strip()
+    raw = json.loads(text) if text.startswith("[") else [
+        json.loads(line) for line in text.splitlines() if line.strip()]
+    for record in raw:
+        if not isinstance(record, dict):
+            continue
+        messages = record_to_messages(record)
+        if messages:
+            rows.append({"messages": messages})
+        if limit and len(rows) >= limit:
+            break
+    return rows
 
 
 def build_model(cfg: Config, tokenizer):
@@ -70,11 +90,7 @@ def build_model(cfg: Config, tokenizer):
              "float16": torch.float16, "bfloat16": torch.bfloat16}.get(dtype_name, torch.float32)
 
     model = AutoModelForCausalLM.from_pretrained(
-        str(model_path),
-        dtype=dtype,
-        low_cpu_mem_usage=True,
-        trust_remote_code=True,
-    )
+        str(model_path), dtype=dtype, low_cpu_mem_usage=True, trust_remote_code=True)
     model.config.use_cache = False  # required when gradient checkpointing is on
     if tokenizer.pad_token_id is not None:
         model.config.pad_token_id = tokenizer.pad_token_id
@@ -95,59 +111,64 @@ def build_lora(cfg: Config, model, target_modules):
     return get_peft_model(model, lora_config)
 
 
-def encode(tokenizer, text: str, max_length: int):
-    return tokenizer(text, truncation=True, max_length=max_length, return_tensors="pt")
+def load_tokenizer(cfg: Config):
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained(
+        str(cfg.path_for("Models", "base_hf_path")), trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    return tokenizer
+
+
+def resolve_template_kwargs(cfg: Config, args) -> dict:
+    enable = args.enable_thinking
+    if enable is None:
+        enable = cfg.get_bool("Formatted_datasets", "enable_thinking", False)
+    extra = json.loads(args.template_kwargs) if args.template_kwargs else None
+    return template_kwargs(enable, extra)
 
 
 def run_smoke(cfg: Config, args) -> int:
+    import time
     import torch
-    from transformers import AutoTokenizer
 
     max_length = cfg.get_int("Training", "max_length", 128)
-    seq_len = min(max_length, args.smoke_length)
-
-    model_path = cfg.path_for("Models", "base_hf_path")
-    print(f"loading tokenizer + model from {model_path} (this takes a moment on CPU)")
-    tokenizer = AutoTokenizer.from_pretrained(str(model_path), trust_remote_code=True)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    kwargs = resolve_template_kwargs(cfg, args)
+    tokenizer = load_tokenizer(cfg)
+    print(f"loading model from {cfg.path_for('Models', 'base_hf_path')}")
 
     model = build_model(cfg, tokenizer)
     model = build_lora(cfg, model, args.target_modules)
     model.train()
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
-    print(f"LoRA attached: {trainable:,} trainable / {total:,} total params "
+    print(f"LoRA attached: {trainable:,} trainable / {total:,} total "
           f"({100 * trainable / total:.3f}%)")
 
-    text = format_example(tokenizer, SMOKE_INSTRUCTION, "", SMOKE_OUTPUT)
-    batch = encode(tokenizer, text, seq_len)
-    batch["labels"] = batch["input_ids"].clone()
-    print(f"smoke batch: {batch['input_ids'].shape[1]} tokens")
+    print("template:", repr(render(tokenizer, SMOKE_MESSAGES, **kwargs)))
+    enc = tokenize_chat(tokenizer, SMOKE_MESSAGES, min(max_length, args.smoke_length), **kwargs)
+    print(f"smoke batch: {len(enc['input_ids'])} tokens, "
+          f"{enc['assistant_tokens']} assistant (unmasked)")
+    if enc["assistant_tokens"] == 0:
+        raise SystemExit("error: smoke record produced an all-masked target")
 
+    batch = {
+        "input_ids": torch.tensor([enc["input_ids"]]),
+        "attention_mask": torch.tensor([enc["attention_mask"]]),
+        "labels": torch.tensor([enc["labels"]]),
+    }
     t = time.time()
     out = model(**batch)
-    loss = out.loss
-    loss.backward()
-    step_time = time.time() - t
-    print(f"first forward+backward OK: loss={loss.item():.4f} step_time={step_time:.1f}s")
+    out.loss.backward()
+    print(f"first forward+backward OK: loss={out.loss.item():.4f} "
+          f"step_time={time.time() - t:.1f}s")
     print("SMOKE OK (no optimizer step, nothing saved)")
     return 0
 
 
-def load_examples(path: Path) -> list[dict]:
-    text = path.read_text(encoding="utf-8").strip()
-    if text.startswith("["):
-        rows = json.loads(text)
-    else:
-        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
-    return [r for r in rows if isinstance(r, dict) and "output" in r]
-
-
 def run_train(cfg: Config, args) -> int:
-    import torch
     from datasets import Dataset
-    from transformers import AutoTokenizer, Trainer, TrainingArguments
+    from transformers import Trainer, TrainingArguments
 
     if not args.dataset:
         raise SystemExit("error: --train requires --dataset <file.jsonl|file.json>")
@@ -156,33 +177,29 @@ def run_train(cfg: Config, args) -> int:
         raise SystemExit(f"error: dataset not found: {dataset_path}")
 
     max_length = cfg.get_int("Training", "max_length", 128)
-    model_path = cfg.path_for("Models", "base_hf_path")
-    tokenizer = AutoTokenizer.from_pretrained(str(model_path), trust_remote_code=True)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
+    kwargs = resolve_template_kwargs(cfg, args)
+    tokenizer = load_tokenizer(cfg)
     model = build_model(cfg, tokenizer)
     if cfg.get_bool("Training", "gradient_checkpointing", True):
         model.gradient_checkpointing_enable()
     model = build_lora(cfg, model, args.target_modules)
 
-    rows = load_examples(dataset_path)
-    if args.limit:
-        rows = rows[: args.limit]
-    print(f"training on {len(rows)} examples from {dataset_path}")
+    rows = load_examples(dataset_path, args.limit)
+    print(f"training on {len(rows)} examples from {dataset_path} (max_length={max_length})")
 
     def to_features(example):
-        text = format_example(tokenizer, example.get("instruction", ""),
-                              example.get("input", ""), example["output"])
-        enc = tokenizer(text, truncation=True, max_length=max_length)
-        enc["labels"] = list(enc["input_ids"])
-        return enc
+        enc = tokenize_chat(tokenizer, example["messages"], max_length, **kwargs)
+        return {"input_ids": enc["input_ids"], "attention_mask": enc["attention_mask"],
+                "labels": enc["labels"]}
 
-    dataset = Dataset.from_list(rows).map(to_features, remove_columns=list(rows[0].keys()))
+    dataset = Dataset.from_list(rows).map(to_features, remove_columns=["messages"])
+    before = len(dataset)
+    dataset = dataset.filter(lambda row: any(t != -100 for t in row["labels"]))
+    if len(dataset) < before:
+        print(f"dropped {before - len(dataset)} records with no assistant tokens after truncation")
 
     output_dir = Path(args.output_dir) if args.output_dir else cfg.path_for("Training", "output_dir")
-    expert = args.expert or "expert"
-    adapter_dir = Path(output_dir) / expert
+    adapter_dir = Path(output_dir) / (args.expert or "expert")
 
     training_args = TrainingArguments(
         output_dir=str(adapter_dir),
@@ -197,8 +214,7 @@ def run_train(cfg: Config, args) -> int:
         remove_unused_columns=False,
         gradient_checkpointing=cfg.get_bool("Training", "gradient_checkpointing", True),
     )
-    trainer = Trainer(model=model, args=training_args, train_dataset=dataset)
-    trainer.train()
+    Trainer(model=model, args=training_args, train_dataset=dataset).train()
     model.save_pretrained(str(adapter_dir))
     tokenizer.save_pretrained(str(adapter_dir))
     print(f"adapter saved to {adapter_dir}")
@@ -219,9 +235,13 @@ def parse_args(argv=None):
     parser.add_argument("--expert", default=None, help="Expert name (adapter subdirectory)")
     parser.add_argument("--output-dir", default=None, help="Override Training.output_dir")
     parser.add_argument("--limit", type=int, default=None, help="Use only the first N examples")
-    parser.add_argument("--smoke-length", type=int, default=32, help="Token length for --smoke")
+    parser.add_argument("--smoke-length", type=int, default=64, help="Token length for --smoke")
     parser.add_argument("--target-modules", nargs="+", default=["q_proj", "v_proj"],
                         help="LoRA target module names")
+    parser.add_argument("--enable-thinking", dest="enable_thinking", action="store_true", default=None,
+                        help="Pass enable_thinking=True to the chat template")
+    parser.add_argument("--template-kwargs", default=None,
+                        help="JSON dict of extra apply_chat_template kwargs")
     return parser.parse_args(argv)
 
 

@@ -70,6 +70,20 @@ Two Python 3.11 environments live here:
 counts and exclusion candidates is `datasets/downloaded/_manifest.md`
 (regenerate with `./venv/bin/python scripts/dataset_inventory.py`).
 
+To format downloaded datasets for training:
+
+```bash
+./venv-inference/bin/python datasets/scripts/format_for_training.py
+```
+
+Outputs land in `datasets/formatted/<category>/{train,val}.jsonl` with a
+`manifest.json` per category. The formatter uses the model's native chat
+template exactly: it writes `{"messages": [...]}` records and never inserts
+`<|im_start|>`/`<|im_end|>` itself — the tokens are added by
+`tokenizer.apply_chat_template()` at tokenize time. Verify with
+`--verify-template`, and read `docs/DATA_PIPELINE.md` for the schema, dedup
+key, reject taxonomy and the measured `max_length` limit.
+
 See [`config.md`](config.md) for every tunable and
 [`MoE_ToDo_List.md`](MoE_ToDo_List.md) for what is done and what is next.
 The architecture plan lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).

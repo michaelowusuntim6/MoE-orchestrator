@@ -5,6 +5,7 @@ models/Qwen3.5-0.8B/
 models/*.gguf
 datasets/downloaded/
 datasets/generated/
+datasets/formatted/
 training/adapters/*
 !training/adapters/.gitkeep
 training/merged/
