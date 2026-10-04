@@ -32,8 +32,11 @@ from orchestrator.config import Config  # noqa: E402
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Long-context memory probe")
     parser.add_argument("--config", default=None)
-    parser.add_argument("--tokens", type=int, default=8192)
+    parser.add_argument("--tokens", "--length", dest="tokens", type=int, default=8192)
     parser.add_argument("--assistant-repeats", type=int, default=12)
+    parser.add_argument("--chunk-size", type=int, default=256)
+    parser.add_argument("--loss-mode", choices=["chunked", "standard"], default="chunked")
+    parser.add_argument("--dtype", default=None)
     args = parser.parse_args(argv)
 
     import torch
@@ -41,7 +44,7 @@ def main(argv=None) -> int:
 
     cfg = Config.load(Path(args.config) if args.config else PROJECT_ROOT / "config.md")
     tokenizer = ft.load_tokenizer(cfg)
-    model = ft.build_model(cfg, tokenizer)
+    model = ft.build_model(cfg, tokenizer, args.dtype)
     # Match training/finetune.py: the real training path enables gradient
     # checkpointing when config says so, which is what keeps activation
     # memory bounded. Measuring without it is misleading.
@@ -50,7 +53,9 @@ def main(argv=None) -> int:
         model.gradient_checkpointing_enable()
     model = ft.build_lora(cfg, model, ["q_proj", "v_proj"])
     model.train()
-    print(json.dumps({"gradient_checkpointing": checkpointing}))
+    print(json.dumps({"gradient_checkpointing": checkpointing,
+                      "dtype": str(next(model.parameters()).dtype),
+                      "loss_mode": args.loss_mode, "chunk_size": args.chunk_size}))
 
     # Grow the prompt until the rendered conversation reaches ~tokens tokens.
     chunk = "Debug this stack trace, identify the root cause and propose a patch. "
@@ -77,8 +82,10 @@ def main(argv=None) -> int:
              "attention_mask": torch.tensor([enc["attention_mask"]]),
              "labels": torch.tensor([enc["labels"]])}
     t = time.time()
-    out = model(**batch)
-    loss = out.loss
+    if args.loss_mode == "standard":
+        loss = model(**batch).loss
+    else:
+        loss = ft.compute_chunked_loss(model, batch, args.chunk_size)
     loss.backward()
     print(json.dumps({"loss": round(loss.item(), 4), "step_seconds": round(time.time() - t, 1)}))
     print("LONG_CONTEXT_PROBE_OK")

@@ -93,71 +93,96 @@ The empirical template facts (source, token ids, `enable_thinking` behaviour,
 and the discovery that `return_assistant_tokens_mask=True` returns an all-zero
 mask here) are in `docs/QWEN_CHAT_TEMPLATE.md`.
 
-## 7. Tokenize-and-drop acceptance test
+## 7. Training memory: chunked cross-entropy, dtype, and max_length
 
-`scripts/tokenize_and_drop_check.py` takes a slice of an output corpus, applies
-the real template with assistant-only masking at `config.md` `max_length`, and
-reports the truncation rate and mask sanity rate. That is the acceptance test
-that the corpus is directly trainable — see the report for the numbers.
+### The problem
 
-### Final `max_length` = 1024 (measured, not guessed)
+Qwen3.5-0.8B has a 248,320-token vocabulary. The LM head therefore dominates
+memory: at seq_len = 4096 in fp32 the logits tensor alone is ~4 GB, and its
+gradient another ~4 GB. That is why the previous session had to drop
+`max_length` to 1024 (4096/6144/8192 were all OOM-killed at a 12 GiB cap) and
+why `coding_debug` became untrainable.
 
-`scripts/long_context_probe.py` runs one real forward+backward at a given
-length with gradient checkpointing enabled (matching `training/finetune.py`),
-inside a 12 GiB systemd memory cap:
+### The fix (Finding 1 — the load-bearing one)
 
-| sequence length | peak RSS | seconds/step | result |
+`orchestrator/chunked_ce.py` implements a `torch.autograd.Function` that never
+materialises the full logits:
+
+* forward: chunk the flattened `(tokens, hidden)` activations along the token
+  dimension (default 256), project each chunk with `hidden_chunk @ Wᵀ`, compute
+  `cross_entropy` for that chunk, accumulate, and **free the chunk**;
+* backward: recompute one chunk at a time, form `softmax − onehot`, and
+  accumulate only `grad(hidden)` — the LM head is frozen under LoRA, so the
+  weight gradient is skipped entirely.
+
+Peak transient cost is one chunk of logits + its fp32 softmax (~380 MB at
+chunk 256) regardless of sequence length. Verified numerically identical to
+the reference path (`tests/test_chunked_ce.py`: loss equal, max grad diff
+2.2e-8).
+
+`training/finetune.py` uses it via a `ChunkedCETrainer` (subclass of
+`transformers.Trainer`) that calls the decoder directly and then applies the
+chunked loss; `--loss-mode standard` restores the old behaviour for
+comparison, and `--chunk-size` controls the chunk.
+
+### Dtype: bf16 rejected on measurement (Finding 2)
+
+bf16 halves the weights (3.2 → 1.6 GiB) and is numerically supported on this
+CPU, but it is far slower in backward:
+
+| configuration | 41-token smoke, forward+backward |
+|---|---|
+| fp32 | **5.1 s** |
+| bf16 | 199.7 s (~40× slower) |
+
+Component timing at bf16: decoder forward 7.3 s, chunked CE forward 2.9 s,
+**backward 190.7 s**. A micro-benchmark confirms the pattern (512×512 linear
+forward: fp32 0.002 s, bf16 0.030 s, fp16 0.085 s). fp16 is worse than bf16,
+so `base_hf_dtype: float32` is kept: with the LM head no longer dominating,
+the weight memory is affordable and fp32 is ~40× faster.
+
+### Measured ceiling after the fix
+
+`scripts/long_context_probe.py` (fp32, chunked CE, gradient checkpointing on),
+each run wrapped in `systemd-run -p MemoryMax=12G`:
+
+| sequence length | peak RSS | s/step | before the fix |
 |---:|---:|---:|---|
-| 41 (official `--smoke`) | 5.1 GiB | 4.9 | ok |
-| 880 | 9.3 GiB | 116.5 | ok |
-| 1804 | 12.4 GiB | 271.0 | ok but thrashing |
-| 4096 | — | — | OOM-killed at 12 GiB |
-| 6144 | — | — | OOM-killed at 12 GiB |
-| 8192 | — | — | OOM-killed at 12 GiB |
+| 41 (official `--smoke`) | 5.0 GiB | 5.1 | 5.1 GiB |
+| 1804 | 7.6 GiB | 210.5 | 12.4 GiB, thrashing |
+| 3484 | 10.3 GiB | 433.0 | **OOM-killed** |
+| 7124 | 8.8 GiB | 1184.7 | **OOM-killed** |
 
-The driver is the **fp32 LM head over a 248,320-token vocab**: ~1 GB of logits
-plus ~1 GB of gradient per 1024 tokens, on top of 3.2 GiB of fp32 weights.
-Attention is not the problem (Qwen3.5-0.8B is hybrid linear-attention with
-`max_position_embeddings = 262144`). 1024 is therefore the largest value that
-trains without swap thrash on this 14 GiB machine.
+Every length now completes. `max_length` is therefore **8192** — the largest
+value tested. It is a cap, not a fixed cost: the Trainer pads to the longest
+sequence in a batch, so short records stay cheap.
 
-### Tokenize-and-drop results at `max_length = 1024` (200 records each)
+### Tokenize-and-drop results at `max_length = 8192` (200 records each)
 
-| category | truncation | all-zero mask | assistant tokens retained | mask sanity |
+| category | truncation | all-zero mask | retained | (at 1024) |
 |---|---:|---:|---:|---:|
-| kernel | 100.0% | 0.0% | 0.597 | 100.0% |
-| linux | 0.0% | 0.0% | 1.000 | 100.0% |
-| cpp | 0.0% | 0.0% | 1.000 | 100.0% |
-| python | 0.0% | 0.0% | 1.000 | 100.0% |
-| security_data | 0.0% | 0.0% | 1.000 | 100.0% |
-| android | 0.0% | 0.0% | 1.000 | 100.0% |
-| uncategorized | 9.0% | 1.5% | 0.965 | 98.5% |
-| reasoning_algorithms | 4.0% | 2.5% | 0.967 | 97.5% |
-| generated_lineageos | 3.0% | 0.0% | 0.998 | 100.0% |
-| generated_mql5 | 20.5% | 0.0% | 0.963 | 100.0% |
-| agent_tool | 40.0% | 28.0% | 0.661 | 72.0% |
-| coding_debug | 98.0% | 97.5% | 0.023 | 2.5% |
+| kernel | 0.0% | 0.0% | 1.000 | 100% truncated |
+| linux | 0.0% | 0.0% | 1.000 | 0% |
+| cpp | 0.0% | 0.0% | 1.000 | 0% |
+| python | 0.0% | 0.0% | 1.000 | 0% |
+| security_data | 0.0% | 0.0% | 1.000 | 0% |
+| android | 0.0% | 0.0% | 1.000 | 0% |
+| uncategorized | 0.0% | 0.0% | 1.000 | 9.0% |
+| reasoning_algorithms | 0.0% | 0.0% | 1.000 | 4.0% |
+| **coding_debug** | **7.5%** | **7.5%** | **0.925** | 98.0% |
+| agent_tool | 0.0% | 0.0% | 1.000 | 40.0% |
+| generated_lineageos | 0.0% | 0.0% | 1.000 | 3.0% |
+| generated_mql5 | 0.0% | 0.0% | 1.000 | 20.5% |
 
-Decisions for the three categories above the 20% truncation threshold
-(step 3.3): **accept and document, not raise `max_length`** — the probe shows
-there is no headroom above 1024 on this machine.
+`coding_debug` — the corpus that made the old limit unusable — is down from
+98% truncation to 7.5%, below the 20% threshold. `debug_review` is no longer
+blocked.
 
-* **kernel (100% truncated, 0% all-zero)** — records have a very long
-  `tool_spec` prompt and a long answer; truncation clips the answer tail but
-  60% of assistant tokens survive, so the records stay trainable. No action.
-* **agent_tool (40% truncated, 28% all-zero)** — ~72% of records train as-is;
-  `finetune.py` drops the rest via its all-masked filter and prints the count.
-  Documented, not fixed.
-* **coding_debug (98% truncated, 97.5% all-zero)** — code traces have
-  p50 ≈ 4.9k tokens, so at 1024 the expert would see only ~2.5% of its
-  corpus. Do **not** train `debug_review` at 1024. The fix is a long-context
-  setup (bf16 weights to halve the base and the logits, and/or a chunked /
-  fused cross-entropy so the 248k-vocab logits are never materialised).
-  Recorded in `docs/EXPERT_PLAN.md`.
+### Acceptance test
 
-This is a *training* limit, not a data-format limit: the corpora are complete
-and correct, and re-running `finetune.py` with a different machine (or the
-bf16/chunked-CE change) makes the full corpora usable without reformatting.
+`scripts/tokenize_and_drop_check.py --category <c> --n 200` is the acceptance
+test: it applies the real template with assistant-only masking at the
+configured `max_length` and reports truncation, all-zero-mask and retention.
 
 ## 8. Excluded datasets (not deleted)
 

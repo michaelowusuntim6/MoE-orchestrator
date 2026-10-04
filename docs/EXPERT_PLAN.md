@@ -75,21 +75,26 @@ Every expert exceeds the 1,000-line minimum by a wide margin (smallest:
 corpora is far more than a CPU LoRA run needs; use
 `training/finetune.py --train --limit N` to cap an individual run.
 
-## Training-memory caveat (`max_length = 1024`)
+## Training memory: resolved (`max_length = 8192`)
 
-Measured on this machine (`scripts/long_context_probe.py`, 12 GiB cap,
-gradient checkpointing on): 1024 tokens ≈ 9.3 GiB peak / 116 s per step;
-2048 ≈ 12.4 GiB and thrashing; 4096+ OOM-killed. `max_length` is therefore
-1024 and `finetune.py` drops records whose assistant turn is truncated away.
+The previous limit of 1024 was caused by the fp32 LM head over a 248,320-token
+vocab. `orchestrator/chunked_ce.py` now computes the loss one chunk at a time
+(the LM-head logits are never fully materialised), so the ceiling moved:
 
-| expert | usable fraction at 1024 (measured) |
+| sequence length | peak RSS | before |
+|---:|---:|---|
+| 1804 | 7.6 GiB | 12.4 GiB, thrashing |
+| 3484 | 10.3 GiB | OOM-killed |
+| 7124 | 8.8 GiB | OOM-killed |
+
+bf16 was rejected on measurement (CPU backward 199.7 s vs 5.1 s for fp32 at 41
+tokens), so weights stay fp32. Details in `docs/DATA_PIPELINE.md` §7.
+
+| expert | usable fraction at 8192 (measured) |
 |---|---|
-| `linux_kernel`, `code_python`, `code_cpp`, `security`, `android` | ~100% |
-| `agent_tool` | ~72% (663k of 676k rows) |
-| `reasoning` | ~97.5% |
-| **`debug_review` (coding_debug)** | **~2.5% — do not train as-is** |
+| `linux_kernel`, `code_python`, `code_cpp`, `security`, `android`, `reasoning`, `agent_tool`, `mql5_optional` | 100% |
+| **`debug_review` (coding_debug)** | **92.5%** (7.5% truncated, was 2.5%) |
 
-**`debug_review` is deferred** until either (a) the model is loaded in bf16
-to halve the fp32 weights and LM-head logits, or (b) a chunked/fused
-cross-entropy removes the 248k-vocab logits materialisation. Both are
-training-side changes; the formatted corpus is already complete.
+**`debug_review` is unblocked.** Note the cost is wall-clock, not memory: a
+full-length (8k-token) step takes ~20 minutes on this CPU, so cap runs with
+`--limit` and prefer shorter records while iterating.

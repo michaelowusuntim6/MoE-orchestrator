@@ -1,8 +1,8 @@
 # MoE Orchestrator — master TODO list
 
-Last updated: 2026-10-04T21:40:00Z
+Last updated: 2026-10-04T23:10:00Z
 Current phase: 2 (data formatted for training; expert plan written)
-Last completed step: 1.5.9 tokenize-and-drop verified for all 12 corpora
+Last completed step: 1.6 training-memory fix — 8192-token step verified on CPU
 
 ## Phase 0 — Scaffold
 - [x] 0.1 Create ~/MoE-orchestrator/ and subfolders
@@ -43,6 +43,16 @@ Last completed step: 1.5.9 tokenize-and-drop verified for all 12 corpora
 - [x] 1.5.7 Real run per category — 12 corpora written
 - [x] 1.5.8 Template verification passes for all 12 categories
 - [x] 1.5.9 Tokenize-and-drop verified at max_length=1024 (docs/DATA_PIPELINE.md §7)
+
+## Phase 1.6 — Fix the training memory bottleneck
+- [x] 1.6.1 Implement chunked linear cross-entropy (orchestrator/chunked_ce.py)
+- [x] 1.6.2 Wire it into finetune.py via a ChunkedCETrainer (--chunk-size, --loss-mode)
+- [x] 1.6.3 Evaluate bf16 weights (rejected: CPU backward 40x slower; fp32 kept)
+- [x] 1.6.4 Add --optimizer {adamw,adafactor}
+- [x] 1.6.5 Measure the new ceiling: 2048/4096/8192 all succeed (no OOM)
+- [x] 1.6.6 Raise max_length 1024 -> 8192 in config.md
+- [x] 1.6.7 Re-run tokenize-and-drop: coding_debug 98% -> 7.5% truncation
+- [x] 1.6.8 Tests: tests/test_chunked_ce.py (5 passing, exact parity)
 
 ## Phase 3 — Fine-tune experts
 - [ ] 3.1 Fine-tune the first expert with `training/finetune.py`
@@ -111,6 +121,15 @@ contains LoFT's sources. Upstream tracking is manual and documented in
 [21:20:00] Long-context probe (gradient checkpointing on, 12G cap): 41tok=5.1GiB/4.9s, 880tok=9.3GiB/116s, 1804tok=12.4GiB/271s, 4096/6144/8192 = OOM-killed
 [21:35:00] Final max_length=1024 (fp32 LM head over 248k vocab is the driver). Tokenize-and-drop run for all 12 corpora
 [21:40:00] docs/DATA_PIPELINE.md §7, docs/EXPERT_PLAN.md, config.md updated with measured numbers
+[22:05:00] Step 0: torch 2.14.1 has F.linear_cross_entropy and optim.Adafactor; CPU bf16 tensors OK; model maps to Qwen3_5ForCausalLM with a clean decoder + lm_head
+[22:10:00] Built-in chunked path (LinearCrossEntropyOptions) unusable on CPU: >10 min without finishing for one 4096-token step; killed it
+[22:20:00] Wrote orchestrator/chunked_ce.py (custom autograd.Function, token-chunked, hidden-grad only since the LM head is frozen). Exact parity with the reference (grad max diff 2.2e-8)
+[22:30:00] finetune.py: ChunkedCETrainer + --chunk-size/--loss-mode/--optimizer/--dtype; probe updated
+[22:35:00] bf16 smoke: 199.7s/step (backward 190.7s) with 2.2 GiB RSS; fp32 smoke: 5.1s/step. bf16/fp16 rejected on measurement, fp32 kept
+[22:50:00] Memory ceiling (fp32 + chunked CE, 12G cap): 1804 tok = 7.6 GiB / 210s (was 12.4 GiB thrashing); 3484 tok = 10.3 GiB / 433s (was OOM); 7124 tok = 8.8 GiB / 1185s (was OOM)
+[23:00:00] max_length raised 1024 -> 8192; tokenize-and-drop: all categories 0% truncation except coding_debug 7.5% (was 98%)
+[23:05:00] docs/DATA_PIPELINE.md §7 and docs/EXPERT_PLAN.md rewritten with the new numbers; tests/test_chunked_ce.py added
+[23:10:00] debug_review unblocked
 
 [19:40:00] AUDIT: verified one commit (372b863), tree clean, 143 datasets downloaded
 [19:41:00] A.5 download integrity: 143/143 OK dirs present and non-empty, 0 missing, 0 empty, 0 untracked dirs; real on-disk size 9.44 GiB (API estimate 14.75 GiB)
@@ -142,13 +161,10 @@ contains LoFT's sources. Upstream tracking is manual and documented in
   with `linux` + `generated_lineageos` (25,467 records).
 - BLOCKER (resolved): `mql5` has no downloaded data; `generated_mql5`
   (3,032 records) is formatted and kept as the optional `mql5_optional` expert.
-- BLOCKER: **`debug_review` (coding_debug) is not trainable at max_length=1024**
-  — 98% of records truncate and 97.5% end with an all-zero assistant mask
-  (code traces have p50 ~4.9k tokens). Raising max_length is not possible on
-  this machine (2048 tokens = 12.4 GiB and thrashing; 4096+ OOM). Plan:
-  load the base weights in bf16 and/or use a chunked/fused cross-entropy so
-  the 248k-vocab logits are never materialised, then re-run
-  `scripts/tokenize_and_drop_check.py --category coding_debug`. The formatted
-  corpus is already complete; only the training-side memory limit blocks it.
+- BLOCKER (resolved): `debug_review` (coding_debug) was untrainable at
+  max_length=1024 (98% truncation). Fixed by the chunked cross-entropy +
+  max_length=8192; truncation is now 7.5%. Measured costs are documented in
+  `docs/DATA_PIPELINE.md` §7 (an 8k-token step takes ~20 min on this CPU, so
+  cap runs with `--limit`).
 - BLOCKER (resolved earlier): transformers 4.37.2 cannot load `qwen3_5` —
   resolved by B.1 Option 2 (`training/finetune.py` + `venv-inference`).

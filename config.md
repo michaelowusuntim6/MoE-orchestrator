@@ -12,6 +12,10 @@ root: /home/mike/MoE-orchestrator
 
 # Base HF model used for fine-tuning experts.
 base_hf_path: models/Qwen3.5-0.8B
+# Measured: bf16 halves weights (3.2 -> 1.6 GiB) and is numerically supported,
+# but CPU backward is ~40x slower (41-token smoke: 199.7s bf16 vs 5.1s fp32;
+# micro-benchmark fwd: fp32 0.002s, bf16 0.030s, fp16 0.085s). The chunked CE
+# removes the LM-head memory pressure, so fp32 stays the fast choice.
 base_hf_dtype: float32
 base_hf_device: cpu
 
@@ -120,19 +124,18 @@ num_train_epochs: 1
 batch_size: 1
 grad_accumulation: 4
 learning_rate: 0.0002
-# Set from measurement, not guesswork (scripts/long_context_probe.py, all with
-# gradient_checkpointing=True, wrapped in a 12G systemd memory cap):
-#   41 tok -> 5.1 GiB peak,   4.9 s/step   (official --smoke)
-#  880 tok -> 9.3 GiB peak, 116.5 s/step
-# 1804 tok -> 12.4 GiB peak, 271 s/step (thrashing)
-# 4096/6144/8192 tok -> OOM-killed at the 12G cap
-# The driver is the fp32 LM head over a 248,320-token vocab (~1 GB of logits
-# plus ~1 GB of gradient per 1024 tokens) on top of 3.2 GiB of fp32 weights,
-# not the (linear) attention. 1024 is the largest value that trains without
-# thrashing. Consequence: coding_debug records (p50 ~4.9k tokens) truncate
-# and are dropped by finetune.py's all-masked filter -- see
-# docs/DATA_PIPELINE.md section 7 and docs/EXPERT_PLAN.md.
-max_length: 1024
+# Raised from 1024 after the chunked-CE fix (scripts/long_context_probe.py,
+# fp32 + chunked CE + gradient checkpointing, 12G systemd cap):
+#   1804 tok -> 7.6 GiB peak,  210 s/step   (was 12.4 GiB / thrashing)
+#   3484 tok -> 10.3 GiB peak, 433 s/step  (was OOM-killed)
+#   7124 tok -> 8.8 GiB peak, 1185 s/step  (was OOM-killed)
+# max_length is a cap: the Trainer pads to the longest sequence in a batch, so
+# short records stay cheap. See docs/DATA_PIPELINE.md section 7.
+max_length: 8192
+
+# Sequence chunk for the chunked linear cross-entropy (LM-head logits are
+# never fully materialised). 256 -> ~380 MB of transient logits per chunk.
+chunk_size: 256
 gradient_checkpointing: true
 save_strategy: epoch
 save_total_limit: 1

@@ -29,6 +29,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from orchestrator.chat_template import render, template_kwargs, tokenize_chat  # noqa: E402
+from orchestrator.chunked_ce import shifted_chunked_lm_loss  # noqa: E402
 from orchestrator.config import Config  # noqa: E402
 
 DEFAULT_CONFIG = PROJECT_ROOT / "config.md"
@@ -80,14 +81,16 @@ def load_examples(path: Path, limit: int | None = None) -> list[dict]:
     return rows
 
 
-def build_model(cfg: Config, tokenizer):
+def build_model(cfg: Config, tokenizer, dtype_override: str | None = None):
     import torch
     from transformers import AutoModelForCausalLM
 
     model_path = cfg.path_for("Models", "base_hf_path")
-    dtype_name = str(cfg.get("Models", "base_hf_dtype", "float32")).lower()
+    dtype_name = str(dtype_override or cfg.get("Models", "base_hf_dtype", "float32")).lower()
     dtype = {"float32": torch.float32, "fp32": torch.float32,
-             "float16": torch.float16, "bfloat16": torch.bfloat16}.get(dtype_name, torch.float32)
+             "float16": torch.float16, "bfloat16": torch.bfloat16,
+             "bf16": torch.bfloat16, "fp16": torch.float16}.get(dtype_name, torch.float32)
+    print(f"loading model dtype={dtype}")
 
     model = AutoModelForCausalLM.from_pretrained(
         str(model_path), dtype=dtype, low_cpu_mem_usage=True, trust_remote_code=True)
@@ -109,6 +112,43 @@ def build_lora(cfg: Config, model, target_modules):
         target_modules=target_modules,
     )
     return get_peft_model(model, lora_config)
+
+
+def text_decoder_and_head(model):
+    """Return (decoder, lm_head) for a (possibly PEFT-wrapped) causal LM.
+
+    Calling the decoder directly is what lets us compute the loss with the
+    chunked cross-entropy instead of the model's built-in full-vocab logits.
+    """
+    base = model
+    if hasattr(model, "base_model") and hasattr(model.base_model, "model"):
+        base = model.base_model.model  # PeftModel -> the HF causal LM
+    decoder = getattr(base, "model", None)
+    if decoder is None:
+        decoder = model
+    head = None
+    for candidate in (model, base):
+        getter = getattr(candidate, "get_output_embeddings", None)
+        if getter is not None:
+            head = getter()
+            if head is not None:
+                break
+    if head is None or not hasattr(head, "weight"):
+        raise SystemExit("error: could not locate the LM head on this model")
+    return decoder, head
+
+
+def compute_chunked_loss(model, batch, chunk_size):
+    """Forward through the decoder, then chunked CE over the LM head."""
+    labels = batch["labels"]
+    decoder, head = text_decoder_and_head(model)
+    outputs = decoder(input_ids=batch["input_ids"],
+                      attention_mask=batch.get("attention_mask"),
+                      use_cache=False)
+    hidden = getattr(outputs, "last_hidden_state", None)
+    if hidden is None:
+        hidden = outputs[0]
+    return shifted_chunked_lm_loss(hidden, head.weight, labels, chunk_size=chunk_size)
 
 
 def load_tokenizer(cfg: Config):
@@ -137,7 +177,7 @@ def run_smoke(cfg: Config, args) -> int:
     tokenizer = load_tokenizer(cfg)
     print(f"loading model from {cfg.path_for('Models', 'base_hf_path')}")
 
-    model = build_model(cfg, tokenizer)
+    model = build_model(cfg, tokenizer, args.dtype)
     model = build_lora(cfg, model, args.target_modules)
     model.train()
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -152,16 +192,21 @@ def run_smoke(cfg: Config, args) -> int:
     if enc["assistant_tokens"] == 0:
         raise SystemExit("error: smoke record produced an all-masked target")
 
+    chunk_size = args.chunk_size or cfg.get_int("Training", "chunk_size", 256)
     batch = {
         "input_ids": torch.tensor([enc["input_ids"]]),
         "attention_mask": torch.tensor([enc["attention_mask"]]),
         "labels": torch.tensor([enc["labels"]]),
     }
     t = time.time()
-    out = model(**batch)
-    out.loss.backward()
-    print(f"first forward+backward OK: loss={out.loss.item():.4f} "
-          f"step_time={time.time() - t:.1f}s")
+    if args.loss_mode == "standard":
+        loss = model(**batch).loss
+    else:
+        loss = compute_chunked_loss(model, batch, chunk_size)
+    loss.backward()
+    print(f"first forward+backward OK: loss={loss.item():.4f} "
+          f"loss_mode={args.loss_mode} chunk_size={chunk_size} "
+          f"dtype={next(model.parameters()).dtype} step_time={time.time() - t:.1f}s")
     print("SMOKE OK (no optimizer step, nothing saved)")
     return 0
 
@@ -179,13 +224,18 @@ def run_train(cfg: Config, args) -> int:
     max_length = cfg.get_int("Training", "max_length", 128)
     kwargs = resolve_template_kwargs(cfg, args)
     tokenizer = load_tokenizer(cfg)
-    model = build_model(cfg, tokenizer)
+    model = build_model(cfg, tokenizer, args.dtype)
     if cfg.get_bool("Training", "gradient_checkpointing", True):
         model.gradient_checkpointing_enable()
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
     model = build_lora(cfg, model, args.target_modules)
+    chunk_size = args.chunk_size or cfg.get_int("Training", "chunk_size", 256)
 
     rows = load_examples(dataset_path, args.limit)
-    print(f"training on {len(rows)} examples from {dataset_path} (max_length={max_length})")
+    print(f"training on {len(rows)} examples from {dataset_path} "
+          f"(max_length={max_length}, loss={args.loss_mode}, chunk_size={chunk_size}, "
+          f"optim={args.optimizer})")
 
     def to_features(example):
         enc = tokenize_chat(tokenizer, example["messages"], max_length, **kwargs)
@@ -201,6 +251,7 @@ def run_train(cfg: Config, args) -> int:
     output_dir = Path(args.output_dir) if args.output_dir else cfg.path_for("Training", "output_dir")
     adapter_dir = Path(output_dir) / (args.expert or "expert")
 
+    optim_name = {"adamw": "adamw_torch", "adafactor": "adafactor"}[args.optimizer]
     training_args = TrainingArguments(
         output_dir=str(adapter_dir),
         per_device_train_batch_size=cfg.get_int("Training", "batch_size", 1),
@@ -213,8 +264,28 @@ def run_train(cfg: Config, args) -> int:
         report_to="none",
         remove_unused_columns=False,
         gradient_checkpointing=cfg.get_bool("Training", "gradient_checkpointing", True),
+        optim=optim_name,
     )
-    Trainer(model=model, args=training_args, train_dataset=dataset).train()
+
+    class ChunkedCETrainer(Trainer):
+        """Trainer that computes the loss with the chunked linear CE."""
+
+        def __init__(self, *t_args, chunk_size=256, loss_mode="chunked", **t_kwargs):
+            super().__init__(*t_args, **t_kwargs)
+            self._chunk_size = chunk_size
+            self._loss_mode = loss_mode
+
+        def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+            if self._loss_mode == "standard":
+                return super().compute_loss(model, inputs,
+                                            return_outputs=return_outputs, **kwargs)
+            inputs = dict(inputs)
+            loss = compute_chunked_loss(model, inputs, self._chunk_size)
+            return (loss, None) if return_outputs else loss
+
+    trainer = ChunkedCETrainer(model=model, args=training_args, train_dataset=dataset,
+                               chunk_size=chunk_size, loss_mode=args.loss_mode)
+    trainer.train()
     model.save_pretrained(str(adapter_dir))
     tokenizer.save_pretrained(str(adapter_dir))
     print(f"adapter saved to {adapter_dir}")
@@ -242,6 +313,14 @@ def parse_args(argv=None):
                         help="Pass enable_thinking=True to the chat template")
     parser.add_argument("--template-kwargs", default=None,
                         help="JSON dict of extra apply_chat_template kwargs")
+    parser.add_argument("--chunk-size", type=int, default=None,
+                        help="Sequence chunk for the chunked cross-entropy (default: Training.chunk_size)")
+    parser.add_argument("--loss-mode", choices=["chunked", "standard"], default="chunked",
+                        help="chunked = never materialise the full vocab logits")
+    parser.add_argument("--optimizer", choices=["adamw", "adafactor"], default="adamw",
+                        help="Optimizer (adafactor uses far less state)")
+    parser.add_argument("--dtype", default=None,
+                        help="Override Models.base_hf_dtype (float32/bfloat16/float16)")
     return parser.parse_args(argv)
 
 
