@@ -1,0 +1,90 @@
+# ================================================================
+#  Hugging Face Search Terms
+#  Maps 1:1 to the 26 dataset prompts in DataSetsPrompts.md
+#  Lines starting with # are ignored. Blank lines are ignored.
+#  Use , OR newlines to separate terms — both work.
+# ================================================================
+
+# 01 — Python
+python, python-code, python-instructions, stackoverflow-python,
+python-lines, python3, python-programming, code-python
+
+# 02 — C
+c-programming, c-code, c-language, code-c, c99
+
+# 03 — C++
+cpp, c-plus-plus, cpp-code, cpp-programming, modern-cpp, code-cpp
+
+# 04 — Bash / Shell
+bash, shell-script, bash-script, shell-commands, bash-commands,
+shell-scripting
+
+# 05 — Linux CLI
+linux-commands, linux-cli, terminal-commands, linux-shell, cli-commands
+
+# 06 — Linux Systems Programming
+posix, syscalls, unix-programming, linux-systems, linux-syscalls
+
+# 07 — Git
+git, version-control, git-commands, github-code, git-repository
+
+# 08 — Android Development
+android, android-app, android-kotlin, android-java, kotlin-android
+
+# 09 — AOSP
+aosp, android-source, android-platform, android-open-source
+
+# 10 — Android Build System
+android-build, soong, android-bp, android-make, blueprint-android
+
+# 11 — LineageOS
+lineageos, lineage, custom-rom, aosp-rom, cyanogenmod
+
+# 12 — Android Device Bring-Up
+device-tree, device-trees, dtb, dtbo, android-device
+
+# 13 — Android Kernel
+linux-kernel, kernel-module, kernel-source, kernel-driver, kernel-dev
+
+# 14 — MQL5 / MetaTrader
+mql5, mql4, metatrader, expert-advisor, forex, trading-bot
+
+# 15 — Code Generation
+code-generation, codegen, code-instruct, code-completion,
+code-synthesis
+
+# 16 — Debugging
+debugging, stack-trace, bug-fix, bug-report, error-fix
+
+# 17 — Refactoring
+refactoring, code-refactor, code-improvement, code-modernization
+
+# 18 — Code Review
+code-review, pull-request, code-critique, code-feedback
+
+# 19 — Technical Reasoning
+reasoning, chain-of-thought, technical-reasoning, step-by-step
+
+# 20 — Algorithms & Data Structures
+algorithms, data-structures, leetcode, competitive-programming,
+algorithm-design
+
+# 21 — Terminal / Tool Use
+tool-use, function-calling, tool-calling, agent-tools
+
+# 22 — Agentic Coding
+agentic, coding-agent, swe-bench, swe-agent, code-agent
+
+# 23 — Documentation → Implementation
+documentation, api-docs, code-docs, api-reference, technical-docs
+
+# 24 — Error Logs / Compiler Logs
+compiler-errors, error-logs, build-errors, diagnostic-logs,
+compiler-output
+
+# 25 — Secure Coding
+secure-coding, security, vulnerabilities, cve, cybersecurity, appsec
+
+# 26 — Dataset Engineering
+dataset-engineering, data-cleaning, jsonl, data-curation,
+dataset-tools

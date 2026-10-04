@@ -1,0 +1,11 @@
+venv*/
+__pycache__/
+*.pyc
+models/Qwen3.5-0.8B/
+models/*.gguf
+datasets/downloaded/
+datasets/generated/
+training/adapters/
+training/merged/
+*.log
+.pytest_cache/
