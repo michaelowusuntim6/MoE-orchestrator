@@ -8,3 +8,4 @@ numpy==1.26.4
 tqdm==4.67.1
 accelerate==0.25.0
 sentencepiece==0.1.99
+psutil==5.9.8

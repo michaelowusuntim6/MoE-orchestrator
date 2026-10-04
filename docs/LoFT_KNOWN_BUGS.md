@@ -1,27 +1,28 @@
-# LoFT — known bugs (reference only)
+# LoFT — known bugs
 
-The previous working copy (`~/CLI_harnesses/LoFT-custom`) was deleted and
-re-cloned fresh in `~/MoE-orchestrator/LoFT`. None of the fixes below are
-applied to the fresh clone. This file preserves the audit so a later
-session can re-apply the fixes deliberately.
+Every bug below was verified against `LoFT/` source and **fixed in place**
+on 2026-10-04 (this session). LoFT is vendored into the parent repo, so the
+fixes live in the parent commit. Re-verified by `LoFT/tests/test_cli.py`.
 
-Source: the twelve-bug audit prompt from the previous LoFT session.
-"Previous status" is what the deleted working copy had committed when it
-was removed.
+| # | Bug | Status | Fix location |
+|---|-----|--------|--------------|
+| 1 | `psutil` imported by 5 modules but missing from `requirements.txt` and `setup.py`. | FIXED | `requirements.txt`, `setup.py` |
+| 2 | `data/sample_finetune_data.json` was malformed JSON (missing `{`). | FIXED | `data/sample_finetune_data.json` |
+| 3 | `--gradient_checkpointing` parsed but never forwarded to `run_finetune`. | FIXED | `loft/cli.py` `_resolve_finetune()` → `loft/train.py` |
+| 4 | `--use_safetensors` parsed but ignored (hardcoded `True`). | FIXED | `loft/train.py` `from_pretrained(use_safetensors=use_safetensors)` |
+| 5 | `--format onnx` accepted by parser but rejected by `export.py`. | FIXED (option b: removed `onnx` from choices) | `loft/cli.py` |
+| 6 | Hardcoded `../llama.cpp` paths with "#please change this" comments in 3 files; README said `make` instead of CMake. | FIXED | `loft/{export,quantize,chat}.py`, `loft/cli.py`, `README.md` |
+| 7 | `merge.py` printed a warning and `return`ed on failure. | FIXED | `loft/merge.py` `sys.exit(1)` |
+| 8 | No CLI exit codes for errors (scripts could not detect failure). | FIXED | `loft/cli.py` `main()` returns 1, `__main__` guard |
+| 9 | `train_config.yaml` was dead — no code read it. | FIXED (wired up via `loft finetune --config`) | `loft/cli.py` `_resolve_finetune()` |
+| 10 | `test_adapter.py` was a hardcoded manual script, not a test. | FIXED (real pytest module, skips without weights) | `loft/test_adapter.py`, new `LoFT/tests/` |
+| 11 | README `loft export` example passed a positional arg the parser rejects. | FIXED | `LoFT/README.md` (now uses `--model_dir`) |
+| 12 | Example adapter shipped no weights and pointed at the author's Mac cache. | FIXED (public model id + explanatory README) | `adapter/adapter_v1/` |
+| 13 | `export.py` dead `elif`: `script_path` and `binary_path` were identical. | FIXED | `loft/export.py` (distinct python script + compiled binary paths) |
+| 14 | Subprocess failures were caught and swallowed; functions returned 0. | FIXED | `loft/{export,quantize,chat}.py` now `raise SystemExit(...)` |
 
-| # | Bug | Previous status |
-|---|-----|-----------------|
-| 1 | `psutil` is imported by `train.py`, `merge.py`, `export.py`, `quantize.py`, `chat.py` but is not declared in `requirements.txt` or `setup.py`; a clean install crashes. | **Fixed** — committed as "Fix 1: declare psutil in requirements.txt and setup.py". |
-| 2 | `data/sample_finetune_data.json` is malformed JSON (a row is not closed correctly). | **Fixed** — committed as "Fix 2: repair malformed sample_finetune_data.json". |
-| 3 | `--gradient_checkpointing` is parsed by the CLI but never forwarded to `run_finetune()`, so the flag is silently ignored. | **Fixed** — committed as "Fix 3: forward --gradient_checkpointing to run_finetune". |
-| 4 | `--use_safetensors` is parsed but ignored: `train.py` hardcodes `use_safetensors=True` in `from_pretrained`. | **Fixed** — committed as "Fix 4: honor --use_safetensors in the model loader". |
-| 5 | CLI accepts `--format onnx` but `export.py` raises `ValueError` for anything except `gguf`. | **Fixed (option b)** — committed as "Fix 5: remove unsupported onnx format choice from CLI". |
-| 6 | `export.py`, `quantize.py`, `chat.py` reference a hardcoded `../llama.cpp` path with "#please change this to original llama.cpp folder" comments; README says `make` but code expects CMake `build/bin/*`. | **Not applied** — still present in the fresh clone. |
-| 7 | `merge.py` prints a warning and `return`s when `merge_and_unload` fails, so scripts cannot detect failure. | **Fixed** — committed as "Fix 7: merge exits non-zero on failure". |
-| 8 | Every subcommand prints an error and exits 0, so shell scripts cannot detect failures. | **Fixed** — committed as "Fix 8: CLI exits non-zero on subcommand failure". |
-| 9 | `train_config.yaml` is dead: no code reads it. Either wire up a `--config` flag or delete it and its README references. | **Not applied**. |
-| 10 | `test_adapter.py` is a hardcoded manual script, not a real test. Convert to pytest or replace with a real `tests/` directory. | **Not applied**. |
-| 11 | README's `loft export` example passes a positional argument the parser does not accept; it must use `--model_dir`. | **Not applied**. |
-| 12 | `adapter/adapter_v1/` ships a config with no weights and a `base_model_name_or_path` pointing at the original author's Mac path. | **Not applied**. |
-
-Re-apply these deliberately in the fresh clone once expert training starts.
+Note: bugs 3 and 4 affect LoFT's own `finetune` path, which is superseded
+for this project by `training/finetune.py` (LoFT pins transformers 4.37.2,
+which cannot load `qwen3_5`). LoFT is kept for the llama.cpp
+merge/export/quantize/chat utilities, which now work with an explicit
+`LFT_LLAMA_CPP_DIR` / `--llama_cpp_dir`.

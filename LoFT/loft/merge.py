@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel, PeftConfig
@@ -16,7 +17,8 @@ def run_merge(base_model, adapter_dir, output_dir):
 
     # Load base model
     config = PeftConfig.from_pretrained(adapter_dir)
-    base_model = AutoModelForCausalLM.from_pretrained(base_model)
+    base_model_id = base_model
+    base_model = AutoModelForCausalLM.from_pretrained(base_model, trust_remote_code=True)
 
     # Wrap with PEFT
     model = PeftModel.from_pretrained(base_model, adapter_dir)
@@ -27,12 +29,12 @@ def run_merge(base_model, adapter_dir, output_dir):
         print("✅ LoRA merged successfully.")
     except Exception as e:
         print("⚠️ Error during merge_and_unload. Likely due to model nesting.")
-        print(str(e))
-        return
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
 
     # Save model and tokenizer
     merged.save_pretrained(output_dir)
-    tokenizer = AutoTokenizer.from_pretrained(base_model.name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained(base_model_id, trust_remote_code=True)
     tokenizer.save_pretrained(output_dir)
 
     # Benchmark end
@@ -49,5 +51,4 @@ def run_merge(base_model, adapter_dir, output_dir):
     print(f"Merge Time: {end_time - start_time:.2f} sec")
     print(f"Merged Model Size: {model_size:.2f} MB")
     print(f"✅ Merged model saved to: {output_dir}")
-
 

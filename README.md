@@ -46,14 +46,29 @@ Two Python 3.11 environments live here:
 
 - `venv/` — the pinned LoFT training stack (transformers 4.37.2,
   peft 0.8.2, torch 2.2.2+cpu). Used for fine-tuning and tests.
-- `venv-inference/` — transformers 5.18.0 + torch 2.14.1+cpu. Qwen3.5
-  (`model_type: qwen3_5`) cannot be loaded by transformers 4.37.2, so HF
-  model loading and inference use this environment instead.
+- `venv-inference/` — transformers 5.18.0 + torch 2.14.1+cpu + peft 0.21.2.
+  Qwen3.5 (`model_type: qwen3_5`) cannot be loaded by transformers 4.37.2,
+  so HF loading, inference and expert training use this environment.
 
 ```bash
 # load the base model on CPU and generate (uses the inference venv)
 ./venv-inference/bin/python scripts/moe_smoke.py
+
+# verify the LoRA training path reaches a forward/backward pass (no training)
+./venv-inference/bin/python training/finetune.py --smoke
+
+# real training happens only with --train:
+# ./venv-inference/bin/python training/finetune.py --train \
+#   --dataset datasets/downloaded/python/<owner>__<name>/<file>.jsonl \
+#   --expert python
 ```
+
+## Data
+
+143 datasets (9.44 GiB, ~4.39M records) are downloaded under
+`datasets/downloaded/<category>/`. The per-dataset inventory with record
+counts and exclusion candidates is `datasets/downloaded/_manifest.md`
+(regenerate with `./venv/bin/python scripts/dataset_inventory.py`).
 
 See [`config.md`](config.md) for every tunable and
 [`MoE_ToDo_List.md`](MoE_ToDo_List.md) for what is done and what is next.

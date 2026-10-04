@@ -33,6 +33,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_CONFIG = PROJECT_ROOT / "config.md"
 
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from orchestrator.config import Config, ConfigError, parse_config  # noqa: E402
+
 API_URL = "https://huggingface.co/api/datasets/{repo_id}"
 API_TIMEOUT = 30
 
@@ -62,100 +67,8 @@ def human_bytes(n) -> str:
     return f"{n:.1f} TB"
 
 
-# --------------------------------------------------------------------------
-# config.md parsing
-# --------------------------------------------------------------------------
-def _strip_quotes(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        return value[1:-1]
-    return value
-
-
-def parse_config(path: Path) -> dict:
-    """Parse `## Section` headers and `key: value` lines.
-
-    A key with an empty value opens a YAML-style list; following
-    ``- item`` lines are appended to ``config[section][key]``.
-    """
-    sections: dict[str, dict] = {}
-    current: dict | None = None
-    list_key: str | None = None
-
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.rstrip()
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("### "):
-            continue
-        if stripped.startswith("## "):
-            name = stripped[3:].strip()
-            current = sections.setdefault(name, {})
-            list_key = None
-            continue
-        if stripped.startswith("#"):
-            continue
-        if current is None:
-            continue
-        if stripped.startswith("- "):
-            if list_key is not None:
-                current[list_key].append(_strip_quotes(stripped[2:].strip()))
-            continue
-        if ":" not in stripped:
-            continue
-        key, _, value = stripped.partition(":")
-        key = key.strip().lower().replace(" ", "_")
-        value = value.strip()
-        if value in ("", "[]"):
-            current[key] = []
-            list_key = key
-        else:
-            current[key] = _strip_quotes(value)
-            list_key = None
-    return sections
-
-
-class Config:
-    """Typed accessors over the parsed config.md with root-relative paths."""
-
-    def __init__(self, sections: dict, config_path: Path):
-        self.sections = sections
-        self.path = config_path
-        root = self.get("Project", "root", str(PROJECT_ROOT))
-        self.root = Path(root).expanduser()
-
-    def get(self, section: str, key: str, default=None):
-        return self.sections.get(section, {}).get(key, default)
-
-    def get_int(self, section: str, key: str, default: int) -> int:
-        try:
-            return int(float(self.get(section, key, default)))
-        except (TypeError, ValueError):
-            return default
-
-    def get_float(self, section: str, key: str, default: float) -> float:
-        try:
-            return float(self.get(section, key, default))
-        except (TypeError, ValueError):
-            return default
-
-    def get_bool(self, section: str, key: str, default: bool) -> bool:
-        value = self.get(section, key, default)
-        if isinstance(value, bool):
-            return value
-        return str(value).strip().lower() in {"1", "true", "yes", "on"}
-
-    def get_list(self, section: str, key: str) -> list:
-        value = self.get(section, key, [])
-        if isinstance(value, list):
-            return value
-        if not value:
-            return []
-        return [item.strip() for item in str(value).split(",") if item.strip()]
-
-    def path_for(self, section: str, key: str, default: str) -> Path:
-        candidate = Path(str(self.get(section, key, default))).expanduser()
-        return candidate if candidate.is_absolute() else (self.root / candidate)
+# config.md parsing lives in orchestrator/config.py and is re-exported here
+# (Config, ConfigError, parse_config) so existing imports keep working.
 
 
 # --------------------------------------------------------------------------
@@ -233,6 +146,18 @@ def dir_has_files(path: Path) -> bool:
         if child.is_file() and ".cache" not in child.parts:
             return True
     return False
+
+
+def dir_size(path: Path) -> int:
+    """Bytes actually on disk under `path`, excluding the HF .cache dir.
+
+    The HF API's ``usedStorage`` overstates the size of the default
+    revision (it counts repo storage), so the status file counts what we
+    really downloaded instead.
+    """
+    if not path.is_dir():
+        return 0
+    return sum(c.stat().st_size for c in path.rglob("*") if c.is_file() and ".cache" not in c.parts)
 
 
 _DOWNLOAD_SNIPPET = (
@@ -383,6 +308,8 @@ def parse_args(argv=None):
                         help="Override min_size_bytes, in MB")
     parser.add_argument("--workers", type=int, default=None,
                         help="Override downloader workers")
+    parser.add_argument("--download-root", default=None,
+                        help="Override Datasets.download_root")
     return parser.parse_args(argv)
 
 
@@ -405,7 +332,10 @@ def main(argv=None) -> int:
     cfg = Config(parse_config(config_path), config_path)
 
     source_list = cfg.path_for("Datasets", "source_list", "datasets/sources/ReallyHelpfulClean.md")
-    download_root = cfg.path_for("Datasets", "download_root", "datasets/downloaded")
+    root_default = cfg.get("Datasets", "download_root", "datasets/downloaded")
+    download_root = cfg.path_for("Datasets", "downloaded_root", root_default)
+    if args.download_root:
+        download_root = Path(args.download_root).expanduser()
     log_file = cfg.path_for("Datasets", "log_file", "datasets/downloaded/_download.log")
     status_file = cfg.path_for("Datasets", "status_file", "datasets/downloaded/_status.json")
     timeout = cfg.get_int("Downloader", "timeout_seconds", 900)
@@ -477,6 +407,7 @@ def main(argv=None) -> int:
         "skipped": 0,
         "failed": 0,
         "bytes": 0,
+        "bytes_api_estimate": 0,
         "per_category": {},
     }
 
@@ -502,9 +433,11 @@ def main(argv=None) -> int:
         for item, ok, error, seconds in pool.map(worker, to_download):
             done += 1
             if ok:
-                size = item.get("size") or 0
+                # Log real on-disk bytes; the API's usedStorage overstates it.
+                size = dir_size(item["dest"])
                 status["ok"] += 1
                 status["bytes"] += size
+                status["bytes_api_estimate"] += item.get("size") or 0
                 bump(item["category"], "ok")
                 log.write(f"OK {item['id']} {size} {seconds:.1f}")
             else:

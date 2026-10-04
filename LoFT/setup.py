@@ -8,7 +8,8 @@ setup(
         "torch",
         "transformers",
         "peft",
-        "datasets"
+        "datasets",
+        "psutil"
     ],
     entry_points={
         "console_scripts": [

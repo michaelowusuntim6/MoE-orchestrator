@@ -54,7 +54,8 @@ pip install -r requirements.txt
 cd ..
 git clone https://github.com/ggerganov/llama.cpp
 cd llama.cpp
-make
+cmake -B build
+cmake --build build -j
 cd ../LoFT
 ```
 
@@ -103,9 +104,10 @@ Produces a single merged HF model with the adapter weights integrated.
 ```bash
 # Export to GGUF
 loft export \
-  --output_dir merged_models \
+  --model_dir merged_models \
   --format gguf \
-  merged_models
+  --output_dir merged_models \
+  --llama_cpp_dir /home/mike/llama.cpp
 
 # Quantize to 4-bit GGUF (Q4_0)
 loft quantize \
@@ -115,6 +117,8 @@ loft quantize \
 ```
 
 Uses llama.cpp's tools. The output works directly with the llama.cpp CLI.
+Point at your llama.cpp checkout with `--llama_cpp_dir PATH` or the
+`LFT_LLAMA_CPP_DIR` environment variable (default: `../llama.cpp`).
 
 ## 4. Run inference
 
@@ -153,7 +157,7 @@ LoFT/
 │   ├── cli.py                     # CLI parser and dispatcher
 │   ├── train.py                   # Finetuning logic
 │   ├── merge.py                   # Adapter merge logic
-│   ├── export.py                  # GGUF/ONNX export logic
+│   ├── export.py                  # GGUF export logic
 │   └── chat.py                    # CLI chat interface
 ├── data/
 │   └── sample_finetune_data.json  # Sample dataset

@@ -5,7 +5,8 @@ models/Qwen3.5-0.8B/
 models/*.gguf
 datasets/downloaded/
 datasets/generated/
-training/adapters/
+training/adapters/*
+!training/adapters/.gitkeep
 training/merged/
 *.log
 .pytest_cache/

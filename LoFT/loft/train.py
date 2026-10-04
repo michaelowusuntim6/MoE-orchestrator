@@ -6,7 +6,20 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingA
 from peft import get_peft_model, LoraConfig, TaskType
 from datasets import load_dataset
 
-def run_finetune(model_name, dataset_path, output_dir, num_train_epochs, use_safetensors=True, gradient_checkpointing=False):
+def run_finetune(
+    model_name,
+    dataset_path,
+    output_dir,
+    num_train_epochs=1,
+    use_safetensors=True,
+    gradient_checkpointing=False,
+    max_length=128,
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=4,
+    lora_r=8,
+    lora_alpha=16,
+    lora_dropout=0.1,
+):
     os.makedirs(output_dir, exist_ok=True)
 
     print("🚀 Starting finetuning benchmark...")
@@ -17,13 +30,13 @@ def run_finetune(model_name, dataset_path, output_dir, num_train_epochs, use_saf
     start_time = time.time()
 
     # Load tokenizer & model
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         trust_remote_code=True,
-        use_safetensors=True,
+        use_safetensors=use_safetensors,
         revision="main"
     )
     model.config.pad_token_id = tokenizer.pad_token_id
@@ -40,9 +53,9 @@ def run_finetune(model_name, dataset_path, output_dir, num_train_epochs, use_saf
     peft_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
         inference_mode=False,
-        r=8,
-        lora_alpha=16,
-        lora_dropout=0.1
+        r=lora_r,
+        lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout
     )
     model = get_peft_model(model, peft_config)
 
@@ -54,7 +67,7 @@ def run_finetune(model_name, dataset_path, output_dir, num_train_epochs, use_saf
         if example.get("input"):
             prompt += "\n" + example["input"]
         prompt += "\n### Response:\n" + example["output"]
-        tokens = tokenizer(prompt, truncation=True, padding="max_length", max_length=128)
+        tokens = tokenizer(prompt, truncation=True, padding="max_length", max_length=max_length)
         tokens["labels"] = tokens["input_ids"].copy()
         return tokens
 
@@ -63,8 +76,8 @@ def run_finetune(model_name, dataset_path, output_dir, num_train_epochs, use_saf
     # Training config
     training_args = TrainingArguments(
         output_dir=output_dir,
-        per_device_train_batch_size=1,
-        gradient_accumulation_steps=4,
+        per_device_train_batch_size=per_device_train_batch_size,
+        gradient_accumulation_steps=gradient_accumulation_steps,
         num_train_epochs=num_train_epochs,
         save_strategy="epoch",
         save_total_limit=1,
