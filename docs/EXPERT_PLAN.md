@@ -187,3 +187,20 @@ uses every record exactly once.
 
 `kernel-davinci-qwen35` and `uncategorized-qwen35` are deliberately left out of
 the recommended expert lists (GPU-only, and unassigned grab bag respectively).
+
+## Tool-calling dataset (shared across all experts)
+
+Every expert must be able to call tools, because the design is one expert per
+prompt. Add `marianbusoi/pi-toolcall-dataset` (the `_nothink` variant) to every
+expert's `DATASETS` list. The mixer will compute its proportion automatically.
+
+- Dataset: https://huggingface.co/datasets/marianbusoi/pi-toolcall-dataset
+- Size: 5,094 trajectories (4,840 train / 254 val)
+- Format: OpenAI function-calling with JSON-string arguments
+- Variants: `train.jsonl` (with thinking blocks), `train_nothink.jsonl`
+- Tool names: `read`, `bash`, `edit`, `write` (Pi CLI's native tools)
+
+The 5,094 records will be a small slice in the larger experts and a meaningful
+slice in the smaller ones. If you want a guaranteed minimum per expert, add it
+as a fixed prefix in addition to the mixer — that requires a small change to
+`orchestrator/dataset_mixer.py`, noted here as future work.

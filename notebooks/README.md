@@ -1,18 +1,48 @@
 # Notebooks
 
 Four notebooks covering training, composition and upload for the
-MoE-orchestrator corpora.
+MoE-orchestrator corpora. The training notebooks target **Qwen3.5-4B**, not
+0.8B — the `qwen35_0.8b_` filename prefix is legacy and kept so the published
+Colab URL keeps working.
 
 | notebook | what it does | hardware |
 |---|---|---|
-| `qwen35_0.8b_colab.ipynb` | Fine-tune Qwen3.5-0.8B with LoRA on one or more published datasets | Colab T4 x1 (16 GB), bf16 LoRA, ~3 GB VRAM |
-| `qwen35_0.8b_kaggle.ipynb` | Same, with `device_map="auto"` across both T4s and batch size 2 | Kaggle T4 x2 (32 GB), bf16 LoRA, ~10 min/epoch on 10k records |
+| `qwen35_0.8b_colab.ipynb` | **Smoke test only** — verify the 4B pipeline works end-to-end on 100 records at 2K context | Colab T4 x1 (16 GB), fp16 |
+| `qwen35_0.8b_kaggle.ipynb` | **Real training** — 4B fp16 at 32K context | Kaggle T4 x2 (32 GB), fp16, batch 1, grad accum 8 |
 | `qwen35_moe_composition.ipynb` | Compose trained expert adapters (PEFT weighted merge or MergeKit) and show the routing decision | template, needs trained experts |
 | `upload_to_hf.ipynb` | Validate a local JSONL, attach a card, push it and verify it loads | helper for future sessions |
 
 ## Open in Colab
 
 https://colab.research.google.com/github/michaelowusuntim6/MoE-orchestrator/blob/main/notebooks/qwen35_0.8b_colab.ipynb
+
+## Precision and context choices
+
+Qwen3.5-4B on T4 uses **fp16** because T4 lacks native bf16 (compute 7.5).
+The notebook loads with `dtype=None` (auto) and sets `fp16=True` / `bf16=False`
+explicitly, which also avoids the T4 dtype-mismatch bug (#4970).
+
+Context is **32768** because Qwen3.5-4B was trained at 32K. The gradient
+explosion bug is only above 65536, so 32K is safe. Do not set `MAX_SEQ_LEN`
+above 65536.
+
+Batch size is **1** with gradient accumulation **8** at 32K. Do not raise the
+batch at this context length — activations will OOM.
+
+If 32K OOMs on Kaggle T4 x2, drop `MAX_SEQ_LEN` to 16384. You will lose
+`coding_debug` and `agent_tool` tail records but nothing else.
+
+## Known bugs the notebooks guard against
+
+- **Unsloth #5441** — the loss patch is not applied to Qwen3.5
+  (`Qwen3_5ForConditionalGeneration` keeps the stock `ForCausalLMLoss`, whose
+  `logits.float()` allocates ~30 GB at 32K seq_len). The notebook asserts
+  `"Unsloth" in str(model.loss_function)` right after loading and tells you to
+  upgrade `unsloth` and `unsloth_zoo` if it fails.
+- **Unsloth #4970** — T4 dtype mismatch with non-quantized LoRA
+  (`BFloat16 != Half`). The notebook sets `fp16=True`, `bf16=False`.
+- **Unsloth #4906** — NaN gradients at `seq_len > 65536`. We use 32768, safely
+  below, and set `max_grad_norm=0.3` as a tighter safety margin.
 
 ## Training on multiple datasets
 
