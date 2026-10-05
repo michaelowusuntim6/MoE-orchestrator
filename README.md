@@ -10,6 +10,14 @@ Nothing here trains or downloads on its own. Every tunable lives in
 [`config.md`](config.md); the resume anchor is
 [`MoE_ToDo_List.md`](MoE_ToDo_List.md).
 
+## Links
+
+- **GitHub:** https://github.com/michaelowusuntim6/MoE-orchestrator
+- **Hugging Face datasets:** https://huggingface.co/michaelowusuntim6
+- **Train on Colab (T4 x1):**
+  https://colab.research.google.com/github/michaelowusuntim6/MoE-orchestrator/blob/main/notebooks/qwen35_0.8b_colab.ipynb
+- **Train on Kaggle (T4 x2):** [`notebooks/qwen35_0.8b_kaggle.ipynb`](notebooks/qwen35_0.8b_kaggle.ipynb) (upload manually to Kaggle)
+
 ## Layout
 
 ```
