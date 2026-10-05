@@ -126,3 +126,24 @@ Consequences:
 
 All nine new categories pass `--verify-template` and measure ≤2.5% truncation
 with 0% all-zero masks at `max_length = 8192`.
+
+## Expansion gains (later 2026-10-05 session)
+
+Nine more categories add **383,047 records**:
+
+| expert | new corpora | added records |
+|---|---|---:|
+| `linux_kernel` | `linux_kernel_commits` (37,770) + `linux_kernel_assembly` (4,203) + `linux_kernel_ioctl` (1,289) + `kernel_davinci` (5,498, GPU-only) | 48,760 |
+| `debug_review` | `code_review` (233,235) | 233,235 |
+| `security` | `security_expanded` (8,480) | 8,480 |
+| `android` | `android_malware` (7,489) | 7,489 |
+| `mql5_optional` | `mql5_expanded` (1,656) + `forex_calendar` (83,427) | 85,083 |
+
+The MQL5 expert is no longer marginal: with `mql5_repos`, `mql5_benchmark`,
+`mql5_expanded` and `forex_calendar` it now has **86,324 records**, so it can
+graduate from `mql5_optional` to a full expert. `debug_review` doubles in size
+(333,343 with `coding_debug` + `code_review`).
+
+`kernel_davinci` is excluded from the laptop training plan: 100% of its
+records truncate at `max_length = 8192`. Train it on a GPU with a larger
+context and 8-bit weights (`docs/TRAINING_RUNBOOK.md`).

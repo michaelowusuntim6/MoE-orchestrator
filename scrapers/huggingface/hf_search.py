@@ -50,21 +50,15 @@ def parse_args(argv=None):
     parser.add_argument("--category", default="hf_search",
                         help="Category directory for --download results")
     parser.add_argument("--output", default=None, help="Override results JSON path")
+    parser.add_argument("--all", action="store_true",
+                        help="Search every configured keyword (the default)")
     return parser.parse_args(argv)
 
 
 def size_and_gated(api, repo_id: str, token):
-    """(total_bytes, gated, largest_file_bytes, error) for one dataset."""
-    try:
-        info = api.dataset_info(repo_id, files_metadata=True, token=token)
-    except Exception as exc:
-        return None, None, None, f"{type(exc).__name__}: {exc}"
-    sizes = [getattr(s, "size", None) for s in (info.siblings or [])]
-    sizes = [s for s in sizes if isinstance(s, int)]
-    return (sum(sizes) if sizes else None,
-            bool(getattr(info, "gated", False)),
-            (max(sizes) if sizes else None),
-            None)
+    """Delegates to the downloader so search and download share one gate."""
+    from scrapers.huggingface.hf_downloader import dataset_meta
+    return dataset_meta(api, repo_id, token)
 
 
 def main(argv=None) -> int:
@@ -92,8 +86,7 @@ def main(argv=None) -> int:
     if args.dry_run:
         print("\n--dry-run: would call, per keyword:")
         for kw in keywords:
-            print(f"  list_datasets(search={kw!r}, limit={limit}, "
-                  f"sort='downloads', direction=-1)")
+            print(f"  list_datasets(search={kw!r}, limit={limit}, sort='downloads')")
         print(f"\nwould filter downloads < {min_downloads}, then fetch sizes and "
               f"drop gated={skip_gated} / oversize datasets")
         print(f"would write results to {results_path}")
@@ -105,8 +98,10 @@ def main(argv=None) -> int:
     per_keyword, candidates = {}, {}
     for kw in keywords:
         try:
+            # NB: huggingface_hub 1.x has no `direction` kwarg; sort=downloads
+            # already returns the most-downloaded first.
             found = list(api.list_datasets(search=kw, limit=limit, token=token,
-                                           sort="downloads", direction=-1))
+                                           sort="downloads"))
         except Exception as exc:
             per_keyword[kw] = {"hits": 0, "kept": 0, "error": f"{type(exc).__name__}: {exc}"}
             print(f"  {kw:18} ERROR {type(exc).__name__}: {exc}")
@@ -135,18 +130,27 @@ def main(argv=None) -> int:
     print(f"\nfetching size/gated metadata for {len(to_enrich)} datasets "
           f"({workers} workers) ...")
 
+    from scrapers.huggingface.hf_downloader import hf_quality_gate
     with ThreadPoolExecutor(max_workers=workers) as pool:
         enriched = list(pool.map(
             lambda e: (e, *size_and_gated(api, e["id"], token)), to_enrich))
-    for entry, total, gated, biggest, err in enriched:
+    for entry, meta, err in enriched:
+        if err or not meta:
+            entry["skip_reasons"] = [f"api_error: {err}"]
+            entry["downloadable"] = False
+            entry["error"] = err
+            continue
+        total = meta["total_bytes"]
+        biggest = meta["max_file_bytes"]
         entry["size_bytes"] = total
         entry["max_file_bytes"] = biggest
-        if gated is not None:
-            entry["gated"] = gated
-        if err:
-            entry["error"] = err
-        reasons = []
-        if entry.get("gated") and skip_gated:
+        entry["gated"] = meta["gated"]
+        entry["license"] = meta.get("license")
+        entry["has_readme"] = meta.get("has_readme")
+        entry["data_files"] = meta.get("data_files")
+        entry["downloads"] = meta.get("downloads")
+        reasons = list(hf_quality_gate(cfg, meta))
+        if meta["gated"] and skip_gated:
             reasons.append("gated")
         if total is not None and total > max_dataset_mb * MB:
             reasons.append(f"dataset_too_large ({human_bytes(total)})")

@@ -347,6 +347,273 @@ def gen_codeparrot():
         yield rec(None, user, assistant)
 
 
+# ------------------------------------------------- Prompt-3 expansion adapters
+def gen_linux_kernel_commits():
+    """ewedubs/linux-kernel-commits-aireason-instruct: instruction+output."""
+    base = HF_ROOT / "linux_kernel" / "ewedubs__linux-kernel-commits-aireason-instruct"
+    for path in sorted(base.glob("*.jsonl")):
+        for row in read_jsonl(path):
+            instruction = FMT.normalize_text(row.get("instruction", ""))
+            inp = FMT.normalize_text(row.get("input", ""))
+            output = FMT.normalize_text(row.get("output", ""))
+            if not instruction or not output:
+                continue
+            user = instruction if not inp else f"{instruction}\n\n{inp}"
+            yield rec("You are a Linux kernel expert.", user, output)
+
+
+def gen_linux_kernel_assembly():
+    """theelderemo/linux-asm-pairs: assembly ↔ explanation pairs."""
+    base = HF_ROOT / "linux_kernel" / "theelderemo__linux-asm-pairs"
+    rows = []
+    for path in sorted(base.rglob("*.parquet")):
+        try:
+            import pyarrow.parquet as pq
+            for batch in pq.ParquetFile(path).iter_batches(batch_size=500):
+                rows.extend(batch.to_pylist())
+        except Exception:
+            continue
+    for row in rows:
+        asm = FMT.normalize_text(row.get("asm", ""))
+        explanation = FMT.normalize_text(row.get("explanation", ""))
+        if not asm or not explanation:
+            continue
+        func = row.get("func_name") or "this function"
+        commit_msg = FMT.normalize_text(row.get("commit_message", ""))
+        user = (f"What does this Linux kernel assembly for {func} "
+                f"({row.get('filename', 'unknown file')}) do?\n\n{asm}")
+        assistant = explanation + (f"\n\nCommit: {commit_msg}" if commit_msg else "")
+        yield rec(None, user, assistant)
+
+
+def gen_linux_kernel_ioctl():
+    """mjbommar/linux-ioctl-census: ioctl codes, handlers, dispatchers."""
+    import pyarrow.parquet as pq
+    base = HF_ROOT / "linux_kernel" / "mjbommar__linux-ioctl-census" / "data"
+    codes, handlers = [], {}
+    try:
+        for batch in pq.ParquetFile(base / "ioctl_codes.parquet").iter_batches(batch_size=500):
+            codes.extend(batch.to_pylist())
+        for batch in pq.ParquetFile(base / "handlers.parquet").iter_batches(batch_size=500):
+            for row in batch.to_pylist():
+                key = str(row.get("ioctl_code") or row.get("code") or row.get("name") or "")
+                if key:
+                    handlers[key] = row
+    except Exception:
+        return
+    for row in codes:
+        code = row.get("ioctl_code") or row.get("code") or row.get("name")
+        if code is None:
+            continue
+        details = ", ".join(f"{k}={v}" for k, v in row.items() if v not in (None, ""))
+        handler = handlers.get(str(code))
+        assistant = f"ioctl {code}: {details}"
+        if handler:
+            assistant += "\n\nHandler: " + ", ".join(
+                f"{k}={v}" for k, v in handler.items() if v not in (None, ""))
+        yield rec(None, f"What does the Linux ioctl {code} do?", assistant)
+
+
+def gen_kernel_davinci():
+    """GAIR/daVinci-kernel-sft sample: agentic Triton-kernel sessions."""
+    path = HF_ROOT / "linux_kernel" / "GAIR__daVinci-kernel-sft" / "sample.jsonl"
+    if not path.is_file():
+        return
+    for row in read_jsonl(path):
+        raw = row.get("messages")
+        messages = None
+        if isinstance(raw, str):
+            try:
+                messages = json.loads(raw)
+            except json.JSONDecodeError:
+                messages = None
+        elif isinstance(raw, list):
+            messages = raw
+        mapped = []
+        if isinstance(messages, list):
+            for m in messages:
+                if not isinstance(m, dict):
+                    continue
+                role = str(m.get("role", "")).lower()
+                text = FMT.normalize_text(m.get("content", ""))
+                if role in ("system", "user", "assistant") and text:
+                    mapped.append({"role": role, "content": text})
+        if mapped:
+            yield {"messages": mapped}
+        elif row.get("original_python_code"):
+            yield rec("You are a GPU kernel optimization expert.",
+                      f"Optimize this kernel: {row.get('entry_point')} "
+                      f"(module {row.get('module_name')})",
+                      FMT.normalize_text(row.get("original_python_code", "")))
+
+
+def gen_code_review():
+    """ronantakizawa/github-codereview + code-review-bench."""
+    import pyarrow.parquet as pq
+    base = HF_ROOT / "code_review" / "ronantakizawa__github-codereview"
+    for path in sorted(base.rglob("*.parquet")):
+        try:
+            for batch in pq.ParquetFile(path).iter_batches(batch_size=500):
+                for row in batch.to_pylist():
+                    before = FMT.normalize_text(row.get("before_code", ""))
+                    after = row.get("after_code")
+                    title = row.get("pr_title") or "a pull request"
+                    context = FMT.normalize_text(row.get("diff_context", ""))
+                    if not before:
+                        continue
+                    user = (f"Review this change in {title} "
+                            f"({row.get('file_path', 'unknown file')}, "
+                            f"{row.get('language', 'unknown')}).\n\n{context or before}")
+                    assistant = (f"Comment type: {row.get('comment_type')}. "
+                                 f"Author: {row.get('author_username')}. "
+                                 f"Line {row.get('comment_line')}.")
+                    if after:
+                        assistant += f"\n\nSuggested after:\n{FMT.normalize_text(after)}"
+                    yield rec(None, user, assistant)
+        except Exception:
+            continue
+
+
+def gen_security_expanded():
+    """ayshajavd code-fix pairs, lemon42 labelled vulns, bagel sample."""
+    import pyarrow.parquet as pq
+    av = HF_ROOT / "security" / "ayshajavd__code-security-vulnerability-dataset"
+    for path in sorted(av.glob("*.parquet")):
+        try:
+            for batch in pq.ParquetFile(path).iter_batches(batch_size=500):
+                for row in batch.to_pylist():
+                    code = FMT.normalize_text(row.get("code", ""))
+                    fixed = FMT.normalize_text(row.get("code_fixed", ""))
+                    cwe = row.get("cwe_id") or "unknown CWE"
+                    if not code:
+                        continue
+                    user = (f"Review this {row.get('language', '')} code for security "
+                            f"vulnerabilities and fix it.\n\n{code}")
+                    assistant = (f"{cwe}" + (f" ({row.get('owasp')})" if row.get("owasp") else "")
+                                 + (f"\n\nFixed code:\n{fixed}" if fixed else ""))
+                    yield rec(SYSTEM_SECURITY, user, assistant)
+        except Exception:
+            continue
+
+    lemon = (HF_ROOT / "security" / "lemon42-ai__Code_Vulnerability_Labeled_Dataset"
+             / "code_vul_dataset.csv")
+    if lemon.is_file():
+        with lemon.open(newline="", encoding="utf-8", errors="ignore") as handle:
+            for row in csv.DictReader(handle):
+                code = FMT.normalize_text(row.get("code", ""))
+                label = FMT.normalize_text(row.get("label", ""))
+                if code and label:
+                    yield rec(SYSTEM_SECURITY,
+                              f"Which vulnerability class does this code exhibit?\n\n{code}",
+                              label)
+
+    bagel = HF_ROOT / "security" / "jondurbin__bagel-llama-3-v1.0" / "sample.jsonl"
+    if bagel.is_file():
+        for row in read_jsonl(bagel):
+            messages = row.get("messages") or row.get("conversations")
+            if isinstance(messages, list) and messages:
+                yield {"messages": messages}
+
+
+def gen_android_malware():
+    """srimeenakshiks/Android-Malware-Dataset: permissions -> malware label."""
+    path = (HF_ROOT / "android_security" / "srimeenakshiks__Android-Malware-Dataset"
+            / "Android_Malware.csv")
+    if not path.is_file():
+        return
+    with path.open(newline="", encoding="utf-8", errors="ignore") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            granted = [k for k, v in row.items()
+                       if k and k != "Result" and str(v).strip() in ("1", "1.0")]
+            label = str(row.get("Result", "")).strip()
+            if not granted or label not in ("0", "1", "0.0", "1.0"):
+                continue
+            verdict = "malware" if label in ("1", "1.0") else "benign"
+            user = ("Classify this Android app from its requested permissions:\n"
+                    + "\n".join(f"- {p}" for p in granted[:40]))
+            assistant = (f"This app is {verdict}. It requests {len(granted)} permissions"
+                         + (", including the high-risk ones: "
+                            + ", ".join(p for p in granted
+                                        if any(w in p for w in ("SMS", "CALL", "LOCATION",
+                                                                "CAMERA", "READ_CONTACTS",
+                                                                "RECORD_AUDIO", "INSTALL")))
+                            if any(w in " ".join(granted) for w in
+                                   ("SMS", "CALL", "LOCATION", "CAMERA", "READ_CONTACTS"))
+                            else "") + ".")
+            yield rec("You are an Android malware analyst.", user, assistant)
+
+
+def gen_forex_calendar():
+    """Ehsanrs2/Forex_Factory_Calendar: MQL5 economic-calendar events."""
+    path = (HF_ROOT / "mql5" / "Ehsanrs2__Forex_Factory_Calendar"
+            / "forex_factory_cache.csv")
+    if not path.is_file():
+        return
+    with path.open(newline="", encoding="utf-8", errors="ignore") as handle:
+        for row in csv.DictReader(handle):
+            currency = row.get("Currency")
+            event = row.get("Event")
+            when = row.get("DateTime")
+            if not currency or not event:
+                continue
+            user = (f"What was the {currency} {event} economic event"
+                    + (f" at {when}" if when else "") + "?")
+            assistant = (f"Impact: {row.get('Impact', 'unknown')}. "
+                         f"Actual: {row.get('Actual') or 'n/a'}, "
+                         f"Forecast: {row.get('Forecast') or 'n/a'}, "
+                         f"Previous: {row.get('Previous') or 'n/a'}.")
+            detail = FMT.normalize_text(row.get("Detail", ""))
+            if detail:
+                assistant += f"\n\n{detail}"
+            yield rec("You are an MQL5 algorithmic-trading developer.", user, assistant)
+
+
+ORIGINAL_MQL5_REPOS = {
+    "homayoun-asghari__mql5-expert-advisors", "geraked__metatrader5",
+    "EA31337__EA31337-classes", "Pierre8r__All-MQL5-code",
+}
+
+
+def gen_mql5_expanded():
+    """Every newly cloned MQL5 repo (excludes the four originals)."""
+    exts = {".mq5": "EA or script", ".mqh": "include header", ".mq4": "legacy EA"}
+    for repo_dir in sorted(p for p in (GH_ROOT / "mql5").glob("*") if p.is_dir()):
+        if repo_dir.name in ORIGINAL_MQL5_REPOS:
+            continue
+        name = repo_dir.name.split("__", 1)[-1]
+        for path in sorted(repo_dir.rglob("*")):
+            if not path.is_file() or ".git" in path.parts:
+                continue
+            suffix = path.suffix.lower()
+            if suffix in exts:
+                text = FMT.normalize_text(path.read_text(encoding="utf-8", errors="ignore"))
+                if not text:
+                    continue
+                if suffix == ".mqh":
+                    user = f"Show me the MQL5 header for {path.stem} from {name}."
+                else:
+                    user = (f"Write an MQL5 {exts[suffix]} that implements "
+                            f"{path.stem} (from {name}).")
+                yield rec("You are an MQL5 Expert Advisor developer.", user, text)
+            elif path.name.lower() == "readme.md":
+                text = FMT.normalize_text(path.read_text(encoding="utf-8", errors="ignore"))
+                if text:
+                    yield rec("You are an MQL5 Expert Advisor developer.",
+                              f"What does the MQL5 project {name} do, and how is it used?",
+                              text)
+
+
+def gen_lkml_domains():
+    """yeeted-my-bashrc/lkml-domains contains only an email-domain column.
+
+    There is no thread text, so it cannot produce instruction pairs. This
+    generator yields nothing and the category is documented as skipped.
+    """
+    return
+    yield  # pragma: no cover
+
+
 GENERATORS = {
     "supportbench_lineageos": lambda args: gen_supportbench(),
     "kernel_vuln": lambda args: gen_kernel_vuln(),
@@ -357,6 +624,17 @@ GENERATORS = {
     "security_qa": lambda args: gen_security_qa(),
     "lineageos_tree": lambda args: gen_lineageos_tree(args.max_chars),
     "python_codeparrot_sample": lambda args: gen_codeparrot(),
+    # Prompt-3 expansion
+    "linux_kernel_commits": lambda args: gen_linux_kernel_commits(),
+    "linux_kernel_assembly": lambda args: gen_linux_kernel_assembly(),
+    "linux_kernel_ioctl": lambda args: gen_linux_kernel_ioctl(),
+    "kernel_davinci": lambda args: gen_kernel_davinci(),
+    "code_review": lambda args: gen_code_review(),
+    "security_expanded": lambda args: gen_security_expanded(),
+    "android_malware": lambda args: gen_android_malware(),
+    "forex_calendar": lambda args: gen_forex_calendar(),
+    "mql5_expanded": lambda args: gen_mql5_expanded(),
+    "lkml_domains": lambda args: gen_lkml_domains(),
 }
 
 

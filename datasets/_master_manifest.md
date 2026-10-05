@@ -1,6 +1,6 @@
 # Master dataset manifest
 
-Generated: 2026-10-05 · Input for Prompt 3 (Hugging Face upload).
+Generated: 2026-10-05 (expanded same day) · Input for Prompt 3 (HF upload).
 
 Every corpus below is in the canonical Qwen3.5 shape
 `{"messages":[{"role","content"}, ...]}` under
@@ -11,9 +11,46 @@ categories.
 
 ## Totals
 
-- **21 categories** · **2,604,368 records** · **8.26 GB** of formatted JSONL
-- 12 existing categories (from the first download campaign): **1,989,038**
-- 9 new categories (this campaign): **615,330**
+- **30 categories** · **2,987,415 records** · **~10.5 GB** of formatted JSONL
+- 12 original categories: **1,989,038**
+- 9 categories from the second campaign: **615,330**
+- 9 categories from the expansion campaign: **383,047**
+
+## Expansion campaign (2026-10-05, later session)
+
+| category | source | records | train | val | template | trainable at 8192 |
+|---|---|---:|---:|---:|---|---|
+| `linux_kernel_commits` | `ewedubs/linux-kernel-commits-aireason-instruct` | 37,770 | 37,031 | 739 | PASS | yes (0% trunc) |
+| `linux_kernel_assembly` | `theelderemo/linux-asm-pairs` | 4,203 | 4,129 | 74 | PASS | yes (1.0%) |
+| `linux_kernel_ioctl` | `mjbommar/linux-ioctl-census` | 1,289 | 1,261 | 28 | PASS | yes (0%) |
+| `kernel_davinci` | `GAIR/daVinci-kernel-sft` (500 MB stream) | 5,498 | 5,372 | 126 | PASS | **no — 100% truncation** |
+| `code_review` | `ronantakizawa/github-codereview` | 233,235 | 228,452 | 4,783 | PASS | yes (2.5%) |
+| `security_expanded` | `ayshajavd/…`, `lemon42-ai/…`, `jondurbin/bagel-llama-3-v1.0` (500 MB stream) | 8,480 | 8,323 | 157 | PASS | yes (0%) |
+| `android_malware` | `srimeenakshiks/Android-Malware-Dataset` | 7,489 | 7,336 | 153 | PASS | yes (0%) |
+| `forex_calendar` | `Ehsanrs2/Forex_Factory_Calendar` | 83,427 | 81,793 | 1,634 | PASS | yes (0%) |
+| `mql5_expanded` | 52 newly cloned MQL5 GitHub repos | 1,656 | 1,618 | 38 | PASS | yes (13.5%) |
+
+`kernel_davinci` caveat: the release contains long agentic Triton-kernel
+sessions; at `max_length = 8192` 100% of sampled records truncate and 99.5%
+end with an all-zero assistant mask. The corpus is formatted and correct, but
+training it needs a larger context on a GPU (see `docs/TRAINING_RUNBOOK.md`).
+
+### Expansion campaign sources
+
+Downloaded (13 ok / 12 skipped / 0 failed, 2.4 GB) plus three 500 MB streamed
+samples (daVinci 8,879 raw records, bagel 248,833). Quality gate rejected
+`shirman/exploitgym-results` and `shirman/exploitgym-answers`
+(no license, no data files); `anon-sub/syzfix-dataset` streamed-failed on a
+dataset-side pyarrow timestamp schema error and is already covered by
+`xiaoguangwang/syzfix-dataset`.
+
+GitHub: 56 MQL5 repos in the list, 52 newly cloned from a search that
+examined 107 candidates (54 passed the gate; kernel/ROM repos stay excluded by
+policy). Cloned total 267.9 MB.
+
+`yeeted-my-bashrc/lkml-domains` was downloaded but **not formatted**: the
+release contains a single `domain` column (email domains, no thread text), so
+it cannot produce instruction pairs.
 
 ## New categories (this campaign)
 

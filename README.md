@@ -133,3 +133,27 @@ corpora were produced — **615,330 records** — all template-verified and
 
 The full inventory (21 categories, 2,604,368 records) is
 [`datasets/_master_manifest.md`](datasets/_master_manifest.md).
+
+### Expansion + 8-bit training (later 2026-10-05)
+
+```bash
+# search and gate new sources before downloading anything
+./venv-inference/bin/python scrapers/huggingface/hf_search.py --all
+./venv-inference/bin/python scrapers/github/github_search.py --append
+
+# download only what passes the gate (default: on)
+./venv-inference/bin/python scrapers/huggingface/hf_downloader.py --all --quality-gate
+./venv-inference/bin/python scrapers/github/github_scraper.py --all --quality-gate
+
+# format the new public sources (9 more categories)
+./venv-inference/bin/python scrapers/format_public.py --all
+
+# train: fp32 here, 8-bit on Colab/Kaggle
+./venv-inference/bin/python training/finetune.py --smoke --quantization fp32
+./venv-inference/bin/python training/finetune.py --train --quantization 8bit \
+    --dataset datasets/formatted/code_review/train.jsonl --expert debug_review
+```
+
+The project now holds **30 categories / 2,987,415 records**. Precision,
+memory and where-to-run guidance is in
+[`docs/TRAINING_RUNBOOK.md`](docs/TRAINING_RUNBOOK.md).

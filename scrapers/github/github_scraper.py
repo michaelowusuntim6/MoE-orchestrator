@@ -52,6 +52,10 @@ def parse_args(argv=None):
                         help="Ignore the repo/file size ceilings")
     parser.add_argument("--all", action="store_true",
                         help="Process every entry in the list (the default behavior)")
+    parser.add_argument("--quality-gate", dest="quality_gate", action="store_true", default=None,
+                        help="Enforce the quality gate before cloning (default: on)")
+    parser.add_argument("--no-quality-gate", dest="quality_gate", action="store_false",
+                        help="Disable the quality gate")
     return parser.parse_args(argv)
 
 
@@ -76,7 +80,7 @@ def parse_repo_list(path: Path) -> list[tuple[str, str]]:
 
 
 def repo_metadata(repo: str, token: str | None):
-    """(size_kb, default_branch, archived, fork, error) from the GitHub API."""
+    """Rich repo metadata for the size guards and the quality gate."""
     import requests
     headers = {"Accept": "application/vnd.github+json"}
     if token:
@@ -84,14 +88,82 @@ def repo_metadata(repo: str, token: str | None):
     try:
         response = requests.get(API.format(repo=repo), headers=headers, timeout=30)
     except Exception as exc:
-        return None, None, None, None, f"{type(exc).__name__}: {exc}"
+        return None, f"{type(exc).__name__}: {exc}"
     if response.status_code == 404:
-        return None, None, None, None, "not_found"
+        return None, "not_found"
     if response.status_code >= 400:
-        return None, None, None, None, f"HTTP {response.status_code}"
+        return None, f"HTTP {response.status_code}"
     data = response.json()
-    return (data.get("size"), data.get("default_branch"),
-            bool(data.get("archived")), bool(data.get("fork")), None)
+    license_info = data.get("license") or {}
+    return {
+        "size_kb": data.get("size"),
+        "default_branch": data.get("default_branch"),
+        "archived": bool(data.get("archived")),
+        "fork": bool(data.get("fork")),
+        "stars": data.get("stargazers_count", 0) or 0,
+        "license": license_info.get("spdx_id") if isinstance(license_info, dict) else None,
+        "description": data.get("description") or "",
+        "has_issues": bool(data.get("has_issues")),
+    }, None
+
+
+def has_readme(repo: str, token: str | None) -> bool:
+    import requests
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        r = requests.get(f"https://api.github.com/repos/{repo}/readme",
+                         headers=headers, timeout=30)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def gh_quality_gate(cfg, meta: dict) -> list[str]:
+    section = "Scrapers"
+    if not cfg.get_bool(section, "quality_gate_enabled", True):
+        return []
+    reasons = []
+    min_stars = cfg.get_int(section, "quality_gate_min_stars", 5)
+    if meta["stars"] < min_stars:
+        reasons.append(f"low_stars({meta['stars']})")
+    if cfg.get_bool(section, "quality_gate_require_license", True) and not meta.get("license"):
+        reasons.append("no_license")
+    if not meta.get("description"):
+        reasons.append("no_description")
+    return reasons
+
+
+def load_search_cache(path: Path | None = None) -> dict:
+    """Reuse scrapers/logs/github_search_results.json as a metadata cache.
+
+    The search results already carry stars, license and size, so cloning a
+    batch of discovered repos costs **zero** API calls and never trips the
+    60 req/h unauthenticated limit.
+    """
+    path = path or (PROJECT_ROOT / "scrapers" / "logs" / "github_search_results.json")
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    cache = {}
+    for repo in data.get("repos", []):
+        if not repo.get("reasons"):  # only trust entries that passed the gate
+            cache[repo["repo"]] = {
+                "size_kb": int((repo.get("size_mb") or 0) * 1024),
+                "default_branch": None,
+                "archived": bool(repo.get("archived")),
+                "fork": bool(repo.get("fork")),
+                "stars": repo.get("stars") or 0,
+                "license": repo.get("license"),
+                "description": repo.get("description") or "(from search cache)",
+                "has_issues": True,
+                "from_cache": True,
+            }
+    return cache
 
 
 def prune_large_files(root: Path, max_file_mb: int) -> list[dict]:
@@ -171,7 +243,12 @@ def main(argv=None) -> int:
 
     log = RunLog(cfg.path_for(scrapers, "download_log_file", "scrapers/logs/download.log"))
     counters = {"total": len(entries), "ok": 0, "skipped": 0, "failed": 0, "bytes": 0,
-                "files_removed": 0}
+                "files_removed": 0, "rejected_by_quality_gate": 0}
+    gate_enabled = (args.quality_gate if args.quality_gate is not None
+                    else cfg.get_bool(scrapers, "quality_gate_enabled", True))
+    cache = load_search_cache() if gate_enabled else {}
+    if cache:
+        print(f"metadata cache : {len(cache)} gated repos from github_search_results.json")
     rows = []
     started_at = now_iso()
     try:
@@ -182,26 +259,38 @@ def main(argv=None) -> int:
             if not args.force and dir_has_files(dest):
                 row.update(action="skip", reason="already_cloned")
             else:
-                size_kb, branch, archived, fork, err = repo_metadata(repo, token)
+                meta, err = (cache[repo], None) if repo in cache else repo_metadata(repo, token)
                 if err:
                     row.update(action="fail", reason=f"api_error: {err}")
-                elif fork and skip_forks:
+                elif meta["fork"] and skip_forks:
                     row.update(action="skip", reason="fork")
-                elif archived and skip_archived:
+                elif meta["archived"] and skip_archived:
                     row.update(action="skip", reason="archived")
-                elif not args.allow_large and size_kb is not None and size_kb / 1024 > max_repo_mb:
-                    row.update(action="skip",
-                               reason=f"repo_too_large ({size_kb/1024:.0f} MB)")
                 else:
-                    try:
-                        clone_repo(repo, dest, depth, timeout, token)
-                        removed = [] if args.allow_large else prune_large_files(dest, max_file_mb)
-                        counters["files_removed"] += len(removed)
-                        row.update(action="ok", bytes=dir_size(dest),
-                                   default_branch=branch, archived=archived, fork=fork,
-                                   files_removed=len(removed))
-                    except Exception as exc:
-                        row.update(action="fail", reason=f"{type(exc).__name__}: {exc}")
+                    gate_reasons = gh_quality_gate(cfg, meta) if gate_enabled else []
+                    if gate_enabled and not gate_reasons and not meta.get("from_cache") \
+                            and not has_readme(repo, token):
+                        gate_reasons.append("no_readme")
+                    size_kb = meta["size_kb"]
+                    if gate_reasons:
+                        counters["rejected_by_quality_gate"] += 1
+                        row.update(action="skip",
+                                   reason="quality_gate:" + ",".join(gate_reasons))
+                    elif not args.allow_large and size_kb is not None and size_kb / 1024 > max_repo_mb:
+                        row.update(action="skip",
+                                   reason=f"repo_too_large ({size_kb/1024:.0f} MB)")
+                    else:
+                        try:
+                            clone_repo(repo, dest, depth, timeout, token)
+                            removed = [] if args.allow_large else prune_large_files(dest, max_file_mb)
+                            counters["files_removed"] += len(removed)
+                            row.update(action="ok", bytes=dir_size(dest),
+                                       default_branch=meta["default_branch"],
+                                       archived=meta["archived"], fork=meta["fork"],
+                                       stars=meta["stars"], license=meta["license"],
+                                       files_removed=len(removed))
+                        except Exception as exc:
+                            row.update(action="fail", reason=f"{type(exc).__name__}: {exc}")
 
             rows.append(row)
             if row["action"] == "ok":

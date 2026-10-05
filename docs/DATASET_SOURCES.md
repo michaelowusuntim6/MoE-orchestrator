@@ -1,5 +1,47 @@
 # Dataset sources
 
+## Expansion campaign (2026-10-05, later session)
+
+### Hugging Face — passed the quality gate and downloaded (13)
+
+| category | dataset | size | gate |
+|---|---|---:|---|
+| linux_kernel | `ewedubs/linux-kernel-commits-aireason-instruct` | 596.0 MB | PASS |
+| linux_kernel | `theelderemo/linux-asm-pairs` | 6.6 MB | PASS |
+| linux_kernel | `mjbommar/linux-ioctl-census` | 0.4 MB | PASS |
+| linux_kernel | `yeeted-my-bashrc/lkml-domains` | 79.4 MB | PASS (not formattable — see below) |
+| linux_kernel | `GAIR/daVinci-kernel-sft` | 970.1 MB | PASS → streamed 500 MB |
+| security | `ayshajavd/code-security-vulnerability-dataset` | 131.8 MB | PASS |
+| security | `lemon42-ai/Code_Vulnerability_Labeled_Dataset` | 4.4 MB | PASS |
+| security | `jondurbin/bagel-llama-3-v1.0` | 3.9 GB | PASS → streamed 500 MB |
+| android_security | `srimeenakshiks/Android-Malware-Dataset` | 5.1 MB | PASS |
+| mql5 | `AlphaDojo/dojo_forex_kline` | 0.1 MB | PASS |
+| mql5 | `Ehsanrs2/Forex_Factory_Calendar` | 68.2 MB | PASS |
+| code_review | `ronantakizawa/github-codereview` | 652.9 MB | PASS |
+| code_review | `code-review-bench/code-review-bench` | 28.0 MB | PASS |
+| python | `codefuse-ai/CodeExercise-Python-27k` | 62.3 MB | PASS |
+
+### Rejected by the quality gate (not downloaded)
+
+| dataset | reason |
+|---|---|
+| `shirman/exploitgym-results` | no_license, no_data_files |
+| `shirman/exploitgym-answers` | no_license, no_data_files |
+| `DevEscorpion/android-firmware-research` | no_data_files, 125 GB, 4.0 GB single file |
+| `anon-sub/syzfix-dataset` | stream-failed (pyarrow timestamp schema); covered by `xiaoguangwang/syzfix-dataset` |
+| `wikimedia/lkml-domains`, `yeeted-my/bashrc` | 404 (the real id is `yeeted-my-bashrc/lkml-domains`) |
+
+### GitHub — 107 candidates from 8 search queries, 54 passing, 52 newly cloned
+
+Search topics: `mql5`, `expert-advisor`, `forex-robot`, `metatrader5`,
+`algorithmic-trading` (all `language:MQL5`, stars > 5), plus `android-kernel`,
+`lineageos` and `android-rom` which are **reported but never cloned** by
+project policy. Clone total 267.9 MB; the repo list now holds 56 MQL5 repos.
+
+`yeeted-my-bashrc/lkml-domains` note: the release contains a single `domain`
+column (LKML posters' email domains). There is no thread text, so it cannot
+produce instruction pairs and is deliberately not formatted.
+
 ## Acquisition result (2026-10-05, Prompt 2)
 
 All sources below were acquired. Nothing was uploaded.

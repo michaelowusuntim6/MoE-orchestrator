@@ -71,6 +71,10 @@ def parse_args(argv=None):
                         help="Per-dataset byte budget when --stream is used")
     parser.add_argument("--split", default=None,
                         help="Dataset split to stream (default: every split)")
+    parser.add_argument("--quality-gate", dest="quality_gate", action="store_true", default=None,
+                        help="Enforce the quality gate before downloading (default: on)")
+    parser.add_argument("--no-quality-gate", dest="quality_gate", action="store_false",
+                        help="Disable the quality gate")
     return parser.parse_args(argv)
 
 
@@ -100,18 +104,55 @@ def open_log(cfg) -> RunLog:
                                "scrapers/logs/download.log"))
 
 
+DATA_EXTS = (".json", ".jsonl", ".ndjson", ".csv", ".parquet", ".arrow", ".txt", ".gz", ".zst")
+
+
 def dataset_meta(api, repo_id: str, token):
-    """(total_bytes, gated, largest_file_bytes, error)."""
+    """Rich metadata used by both the size guards and the quality gate."""
     try:
         info = api.dataset_info(repo_id, files_metadata=True, token=token)
     except Exception as exc:
-        return None, None, None, f"{type(exc).__name__}: {exc}"
-    sizes = [getattr(s, "size", None) for s in (info.siblings or [])]
+        return None, f"{type(exc).__name__}: {exc}"
+    siblings = list(info.siblings or [])
+    sizes = [getattr(s, "size", None) for s in siblings]
     sizes = [s for s in sizes if isinstance(s, int)]
-    return (sum(sizes) if sizes else None,
-            bool(getattr(info, "gated", False)),
-            (max(sizes) if sizes else None),
-            None)
+    names = [getattr(s, "rfilename", "") or "" for s in siblings]
+    card = getattr(info, "cardData", None) or {}
+    license_id = card.get("license") if isinstance(card, dict) else None
+    if not license_id:
+        for tag in (getattr(info, "tags", []) or []):
+            if isinstance(tag, str) and tag.startswith("license:"):
+                license_id = tag.split(":", 1)[1]
+                break
+    return {
+        "total_bytes": sum(sizes) if sizes else None,
+        "max_file_bytes": max(sizes) if sizes else None,
+        "gated": bool(getattr(info, "gated", False)),
+        "downloads": getattr(info, "downloads", 0) or 0,
+        "likes": getattr(info, "likes", 0) or 0,
+        "license": license_id,
+        "has_readme": any(n.lower().startswith("readme") for n in names),
+        "data_files": sum(1 for n in names if n.lower().endswith(DATA_EXTS)),
+        "files": len(names),
+    }, None
+
+
+def hf_quality_gate(cfg, meta: dict) -> list[str]:
+    """Reject reasons from the quality gate (empty list = pass)."""
+    section = "Scrapers"
+    if not cfg.get_bool(section, "quality_gate_enabled", True):
+        return []
+    reasons = []
+    min_downloads = cfg.get_int(section, "quality_gate_min_downloads", 10)
+    if meta["downloads"] < min_downloads:
+        reasons.append(f"low_downloads({meta['downloads']})")
+    if cfg.get_bool(section, "quality_gate_require_license", True) and not meta.get("license"):
+        reasons.append("no_license")
+    if cfg.get_bool(section, "quality_gate_require_readme", True) and not meta.get("has_readme"):
+        reasons.append("no_readme")
+    if not meta.get("data_files"):
+        reasons.append("no_data_files")
+    return reasons
 
 
 def snapshot_to_dir(repo_id: str, dest: Path, token, timeout: int) -> None:
@@ -128,7 +169,8 @@ def snapshot_to_dir(repo_id: str, dest: Path, token, timeout: int) -> None:
 
 def download_dataset(cfg, repo_id: str, category: str, log: RunLog,
                      force: bool = False, dry_run: bool = False,
-                     allow_large: bool = False, api=None, token=None) -> dict:
+                     allow_large: bool = False, api=None, token=None,
+                     quality_gate: bool = True) -> dict:
     """Download one dataset with all guards. Returns a result dict."""
     scrapers = "Scrapers"
     output_root = cfg.path_for(scrapers, "hf_output_root", "datasets/public/huggingface")
@@ -152,12 +194,25 @@ def download_dataset(cfg, repo_id: str, category: str, log: RunLog,
     if api is None:
         from huggingface_hub import HfApi
         api = HfApi()
-    total, gated, biggest, err = dataset_meta(api, repo_id, token)
-    result["size_bytes"] = total
+    meta, err = dataset_meta(api, repo_id, token)
     if err:
         result.update(action="fail", reason=f"api_error: {err}")
         return result
-    if gated and skip_gated:
+    total = meta["total_bytes"]
+    biggest = meta["max_file_bytes"]
+    result["size_bytes"] = total
+    result["license"] = meta.get("license")
+    result["downloads"] = meta.get("downloads")
+    result["quality"] = {k: meta[k] for k in
+                         ("downloads", "likes", "license", "has_readme",
+                          "data_files", "files")}
+
+    if quality_gate:
+        gate_reasons = hf_quality_gate(cfg, meta)
+        if gate_reasons:
+            result.update(action="skip", reason="quality_gate:" + ",".join(gate_reasons))
+            return result
+    if meta["gated"] and skip_gated:
         result.update(action="skip", reason="gated")
         return result
     if not allow_large:
@@ -192,7 +247,7 @@ def download_dataset(cfg, repo_id: str, category: str, log: RunLog,
 
 def stream_sample(cfg, repo_id: str, category: str, log: RunLog,
                   sample_mb: int = 500, split: str | None = None,
-                  dry_run: bool = False) -> dict:
+                  dry_run: bool = False, force: bool = False) -> dict:
     """Stream a dataset and keep the first `sample_mb` of records as JSONL.
 
     This is the escape hatch for datasets whose shards exceed the 500 MB
@@ -209,7 +264,7 @@ def stream_sample(cfg, repo_id: str, category: str, log: RunLog,
     result = {"dataset": repo_id, "category": category, "path": str(dest),
               "action": None, "reason": "", "bytes": 0, "records": 0,
               "sample_mb": sample_mb}
-    if not dry_run and dir_has_files(dest):
+    if not dry_run and not force and dir_has_files(dest):
         result.update(action="skip", reason="already_downloaded")
         return result
     if dry_run:
@@ -218,6 +273,8 @@ def stream_sample(cfg, repo_id: str, category: str, log: RunLog,
 
     from datasets import load_dataset
     dest.mkdir(parents=True, exist_ok=True)
+    if force and out_path.exists():
+        out_path.unlink()
     written = records = 0
     splits_seen = []
     try:
@@ -306,16 +363,21 @@ def main(argv=None) -> int:
     from huggingface_hub import HfApi
     api = HfApi()
     log = open_log(cfg)
-    counters = {"total": len(entries), "ok": 0, "skipped": 0, "failed": 0, "bytes": 0}
+    gate_enabled = (args.quality_gate if args.quality_gate is not None
+                    else cfg.get_bool(scrapers, "quality_gate_enabled", True))
+    counters = {"total": len(entries), "ok": 0, "skipped": 0, "failed": 0,
+                "rejected_by_quality_gate": 0, "bytes": 0}
     rows = []
     try:
         for i, (category, rid) in enumerate(entries, 1):
             if args.stream:
                 res = stream_sample(cfg, rid, category, log,
-                                    sample_mb=args.stream_sample_mb, split=args.split)
+                                    sample_mb=args.stream_sample_mb, split=args.split,
+                                    force=args.force)
             else:
                 res = download_dataset(cfg, rid, category, log, force=args.force,
-                                       dry_run=False, allow_large=args.allow_large, api=api)
+                                       dry_run=False, allow_large=args.allow_large, api=api,
+                                       quality_gate=gate_enabled)
             rows.append(res)
             if res["action"] == "ok":
                 counters["ok"] += 1
@@ -328,6 +390,8 @@ def main(argv=None) -> int:
                     log.write(f"OK {rid} {res.get('bytes',0)} {res.get('seconds',0)}")
             elif res["action"] == "skip":
                 counters["skipped"] += 1
+                if str(res["reason"]).startswith("quality_gate:"):
+                    counters["rejected_by_quality_gate"] += 1
                 log.write(f"SKIP {rid} {res['reason']}")
             else:
                 counters["failed"] += 1

@@ -123,8 +123,45 @@ hf_search_keywords:
   - codeparrot
   - python-code
   - cpp-code
+  - lkml
+  - kernel-commit
+  - kernel-patch
+  - kernel-assembly
+  - kernel-ioctl
+  - kernel-exploit
+  - syzbot
+  - kernel-debug
+  - kernel-driver
+  - android-cve
+  - android-vulnerability
+  - mql5-expert-advisor
+  - mql5-strategy
+  - expert-advisor
+  - trading-bot
+  - forex-robot
+  - algorithmic-trading
+  - mt5
+  - metatrader5
+  - android-malware
+  - android-apk
+  - apk-analysis
+  - exploit-gym
+  - vulnerability-dataset
+  - secure-coding
+  - code-review
+  - debugging
+  - refactoring
+  - code-generation
 hf_search_max_results: 100
 hf_search_min_downloads: 10
+
+# Quality gates. They run BEFORE any download; a dataset that fails is
+# logged with its reason and then skipped.
+quality_gate_enabled: true
+quality_gate_min_downloads: 10
+quality_gate_min_stars: 5
+quality_gate_require_license: true
+quality_gate_require_readme: true
 
 # LineageOS tree walking (read-only; the tree is never modified)
 lineageos_tree_root: /run/media/mike/Android/lineage-23.2
@@ -165,6 +202,19 @@ hf_upload_repo_prefix: michaelowusuntim6
 hf_upload_private: false
 hf_upload_commit_message_prefix: "v1"
 hf_upload_readme_template: scrapers/huggingface/README.template.md
+
+## Quantization
+
+# Training precision. fp32 is the only path that works on this CPU; 8bit and
+# 4bit need bitsandbytes on a CUDA GPU (Colab/Kaggle). bf16/fp16 are
+# supported numerically here but measured ~40x slower in backward.
+default_quantization: fp32
+quantization_options:
+  - fp32
+  - bf16
+  - 8bit
+  - 4bit
+bitsandbytes_available: true   # bitsandbytes 0.50.2 installed; 8bit/4bit need a CUDA GPU
 
 ## Formatted_datasets
 

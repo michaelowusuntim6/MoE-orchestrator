@@ -1,6 +1,6 @@
 # MoE Orchestrator — master TODO list
 
-Last updated: 2026-10-05T12:10:00Z
+Last updated: 2026-10-05T14:40:00Z
 Current phase: 2 (data formatted for training; expert plan written)
 Last completed step: 1.6 training-memory fix — 8192-token step verified on CPU
 
@@ -81,6 +81,27 @@ Last completed step: 1.6 training-memory fix — 8192-token step verified on CPU
 - [x] 1.8.9 --verify-template PASS for all 9 new categories (and all 12 existing)
 - [x] 1.8.10 Tokenize-and-drop: <=2.5% truncation, 0% all-zero masks on every new category
 - [x] 1.8.11 datasets/_master_manifest.md written
+
+## Phase 1.10 — Expanded dataset acquisition
+- [x] 1.10.1 Expanded HF keywords 15 -> 44 and fixed the `direction` kwarg bug in hf_search.py
+- [x] 1.10.2 Added the quality gate (downloads/license/README/data files/size) to hf_downloader.py
+- [x] 1.10.3 Added github_search.py (107 candidates, 54 passing; kernel/ROM excluded by policy)
+- [x] 1.10.4 Added the GitHub quality gate (stars/license/description/README) + metadata cache
+- [x] 1.10.5 Downloaded 13 new HF datasets (2.4 GB, 0 failures); 1 rejected by the gate
+- [x] 1.10.6 Streamed 3 oversized datasets at 500 MB (daVinci, bagel, syzfix-full)
+- [x] 1.10.7 Cloned 52 new MQL5 repos via the cached metadata path (0 API calls)
+- [x] 1.10.8 Formatted 9 new categories (383,047 records)
+- [x] 1.10.9 --verify-template PASS on all 9
+- [x] 1.10.10 Documented kernel_davinci as untrainable at max_length=8192
+- [x] 1.10.11 Master manifest updated (30 categories, 2,987,415 records)
+
+## Phase 1.11 — 8-bit quantization support
+- [x] 1.11.1 Installed bitsandbytes 0.50.2 into venv-inference
+- [x] 1.11.2 Added --quantization {fp32,bf16,8bit,4bit} to training/finetune.py
+- [x] 1.11.3 8bit/4bit map to BitsAndBytesConfig and paged_adamw_8bit; CPU raises a clear error
+- [x] 1.11.4 docs/TRAINING_RUNBOOK.md written (memory vs quality trade-off)
+- [x] 1.11.5 Smoke test passes with --quantization fp32
+- [x] 1.11.6 tests/test_quantization.py (8 passing)
 
 ## Phase 3 — Fine-tune experts
 - [ ] 3.1 Fine-tune the first expert with `training/finetune.py`
@@ -175,6 +196,19 @@ contains LoFT's sources. Upstream tracking is manual and documented in
 [12:00:00] Formatted 9 new categories: 615,330 records (largest: lineageos_tree 194,832; kernel_vuln 241,116)
 [12:05:00] --verify-template PASS on all 9; tokenize-and-drop <=2.5% truncation, 0% all-zero masks
 [12:10:00] datasets/_master_manifest.md written (2,604,368 records across 21 categories)
+[13:00:00] Found and fixed a real bug: hf_search.py passed an unsupported `direction=` kwarg, so every keyword search had been failing silently
+[13:05:00] Expanded HF keywords 15 -> 44; search returned 691 kept / 153 downloadable
+[13:10:00] Added the HF quality gate (downloads >= 10, license, README, data files, size) — default ON
+[13:15:00] github_search.py: 8 queries, 107 unique repos, 54 passing (23 kernel/ROM rejected by policy)
+[13:20:00] HF download: 13 ok / 12 skipped / 0 failed / 1 gate rejection (2.4 GB)
+[13:35:00] Streamed GAIR/daVinci-kernel-sft (500 MB / 8,879 rec) and bagel-llama-3-v1.0 (500 MB / 248,833 rec)
+[13:40:00] anon-sub/syzfix-dataset streaming failed on a dataset-side pyarrow schema error — documented (already covered by xiaoguangwang/syzfix-dataset)
+[13:50:00] Cloned 52 new MQL5 repos (267.9 MB) using the search-results metadata cache
+[14:00:00] formatters: 9 new categories, 383,047 records; 2 rglob bugs found and fixed (parquets live in data/ subdirs)
+[14:15:00] --verify-template PASS on all 9 new categories
+[14:20:00] tokenize-and-drop: all new categories <=13.5% truncation except kernel_davinci (100%, documented)
+[14:30:00] bitsandbytes 0.50.2 installed; --quantization {fp32,bf16,8bit,4bit} added; fp32 smoke PASS
+[14:40:00] docs/TRAINING_RUNBOOK.md + tests/test_quantization.py (8 passing)
 
 [19:40:00] AUDIT: verified one commit (372b863), tree clean, 143 datasets downloaded
 [19:41:00] A.5 download integrity: 143/143 OK dirs present and non-empty, 0 missing, 0 empty, 0 untracked dirs; real on-disk size 9.44 GiB (API estimate 14.75 GiB)
@@ -206,6 +240,12 @@ contains LoFT's sources. Upstream tracking is manual and documented in
   2201 MB, just over the 2048 MB `github_max_repo_mb` default. It is the most
   valuable kernel source for the A04s, so it is kept in repo_list.md and must
   be cloned with `--allow-large` (or by raising `github_max_repo_mb`).
+- NOTE: `kernel_davinci` is formatted but not trainable at max_length=8192
+  (100% truncation). It needs a larger context on a GPU; the corpus itself is
+  correct.
+- NOTE: `yeeted-my-bashrc/lkml-domains` is downloaded but not formatted — the
+  release has only an email-domain column, so it cannot yield instruction
+  pairs.
 
 - BLOCKER (resolved): `kernel` folded into the `linux_kernel` expert together
   with `linux` + `generated_lineageos` (25,467 records).

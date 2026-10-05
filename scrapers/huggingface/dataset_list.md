@@ -41,3 +41,54 @@ shahrukh95/NVD-question-answer-dataset
 
 # Removed after verification (404 on 2026-10-05):
 #   Quarkslab/AOSP-CVE-dataset
+
+## linux_kernel
+# ewedubs/linux-kernel-commits-aireason-instruct — 596.0 MB, max 160.4 MB — PASS
+ewedubs/linux-kernel-commits-aireason-instruct
+# theelderemo/linux-asm-pairs — 6.6 MB, max 0.4 MB — PASS (asm ↔ source pairs)
+theelderemo/linux-asm-pairs
+# mjbommar/linux-ioctl-census — 0.4 MB, max 0.1 MB — PASS
+mjbommar/linux-ioctl-census
+# yeeted-my-bashrc/lkml-domains — 79.4 MB, max 79.4 MB — PASS (LKML thread domains)
+yeeted-my-bashrc/lkml-domains
+# GAIR/daVinci-kernel-sft — 970.1 MB, max 516.5 MB — STREAM (max file > 500 MB)
+GAIR/daVinci-kernel-sft
+# anon-sub/syzfix-dataset — 3.0 GB, single 3.0 GB file — STREAM
+# SKIPPED 2026-10-05: streaming fails with a dataset-side pyarrow schema error
+#   (ArrowInvalid: Failed to parse string '...Z' as a scalar of type timestamp[s]:
+#    expected no zone offset). The equivalent data is already covered by
+#   xiaoguangwang/syzfix-dataset, which we sampled to 502 MB successfully.
+
+## security
+# ayshajavd/code-security-vulnerability-dataset — 131.8 MB, max 105.2 MB — PASS
+ayshajavd/code-security-vulnerability-dataset
+# lemon42-ai/Code_Vulnerability_Labeled_Dataset — 4.4 MB — PASS
+lemon42-ai/Code_Vulnerability_Labeled_Dataset
+# jondurbin/bagel-llama-3-v1.0 — 3.9 GB, max 1.9 GB — STREAM
+jondurbin/bagel-llama-3-v1.0
+
+## android_security
+# srimeenakshiks/Android-Malware-Dataset — 5.1 MB — PASS (1,159 downloads)
+srimeenakshiks/Android-Malware-Dataset
+
+## mql5
+# AlphaDojo/dojo_forex_kline — 0.1 MB — PASS (15,680 downloads)
+AlphaDojo/dojo_forex_kline
+# Ehsanrs2/Forex_Factory_Calendar — 68.2 MB — PASS
+Ehsanrs2/Forex_Factory_Calendar
+
+## code_review
+# ronantakizawa/github-codereview — 652.9 MB, max 99.7 MB — PASS
+ronantakizawa/github-codereview
+# code-review-bench/code-review-bench — 28.0 MB — PASS
+code-review-bench/code-review-bench
+
+## python
+# codefuse-ai/CodeExercise-Python-27k — 62.3 MB — PASS (instruction pairs)
+codefuse-ai/CodeExercise-Python-27k
+
+# Rejected by the quality gate on 2026-10-05 (recorded, not downloaded):
+#   shirman/exploitgym-results   — no_license, no_data_files
+#   shirman/exploitgym-answers   — no_license, no_data_files
+#   DevEscorpion/android-firmware-research — no_data_files, 125 GB, 4.0 GB single file
+#   404: wikimedia/lkml-domains, yeeted-my/bashrc (the real id is yeeted-my-bashrc/lkml-domains)

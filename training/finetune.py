@@ -81,12 +81,39 @@ def load_examples(path: Path, limit: int | None = None) -> list[dict]:
     return rows
 
 
-def build_model(cfg: Config, tokenizer, dtype_override: str | None = None):
+def resolve_quantization(cfg: Config, args) -> str:
+    """fp32 | bf16 | 8bit | 4bit (CLI wins, else config)."""
+    return (getattr(args, "quantization", None)
+            or cfg.get_str("Quantization", "default_quantization", "fp32"))
+
+
+def build_model(cfg: Config, tokenizer, dtype_override: str | None = None,
+                quantization: str = "fp32"):
     import torch
     from transformers import AutoModelForCausalLM
 
     model_path = cfg.path_for("Models", "base_hf_path")
-    dtype_name = str(dtype_override or cfg.get("Models", "base_hf_dtype", "float32")).lower()
+    quant = (quantization or "fp32").lower()
+    if quant in ("8bit", "4bit"):
+        if not torch.cuda.is_available():
+            raise SystemExit(
+                f"error: --quantization {quant} needs bitsandbytes on a CUDA GPU; "
+                "this machine has no CUDA. Use fp32 here, or 8bit on Colab/Kaggle "
+                "(see docs/TRAINING_RUNBOOK.md).")
+        from transformers import BitsAndBytesConfig
+        bnb = BitsAndBytesConfig(load_in_8bit=(quant == "8bit"),
+                                 load_in_4bit=(quant == "4bit"))
+        print(f"loading model quantization={quant} (bitsandbytes)")
+        model = AutoModelForCausalLM.from_pretrained(
+            str(model_path), quantization_config=bnb, low_cpu_mem_usage=True,
+            trust_remote_code=True)
+        model.config.use_cache = False
+        if tokenizer.pad_token_id is not None:
+            model.config.pad_token_id = tokenizer.pad_token_id
+        return model
+
+    dtype_name = str(dtype_override or quant if quant in ("fp32", "bf16")
+                     else cfg.get("Models", "base_hf_dtype", "float32")).lower()
     dtype = {"float32": torch.float32, "fp32": torch.float32,
              "float16": torch.float16, "bfloat16": torch.bfloat16,
              "bf16": torch.bfloat16, "fp16": torch.float16}.get(dtype_name, torch.float32)
@@ -177,7 +204,8 @@ def run_smoke(cfg: Config, args) -> int:
     tokenizer = load_tokenizer(cfg)
     print(f"loading model from {cfg.path_for('Models', 'base_hf_path')}")
 
-    model = build_model(cfg, tokenizer, args.dtype)
+    quant = resolve_quantization(cfg, args)
+    model = build_model(cfg, tokenizer, args.dtype, quant)
     model = build_lora(cfg, model, args.target_modules)
     model.train()
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -224,7 +252,8 @@ def run_train(cfg: Config, args) -> int:
     max_length = cfg.get_int("Training", "max_length", 128)
     kwargs = resolve_template_kwargs(cfg, args)
     tokenizer = load_tokenizer(cfg)
-    model = build_model(cfg, tokenizer, args.dtype)
+    quant = resolve_quantization(cfg, args)
+    model = build_model(cfg, tokenizer, args.dtype, quant)
     if cfg.get_bool("Training", "gradient_checkpointing", True):
         model.gradient_checkpointing_enable()
         if hasattr(model, "enable_input_require_grads"):
@@ -236,7 +265,7 @@ def run_train(cfg: Config, args) -> int:
     rows = load_examples(dataset_path, args.limit)
     print(f"training on {len(rows)} examples from {dataset_path} "
           f"(max_length={max_length}, loss={args.loss_mode}, chunk_size={chunk_size}, "
-          f"optim={optimizer})")
+          f"optim={optimizer}, quant={quant})")
 
     def to_features(example):
         enc = tokenize_chat(tokenizer, example["messages"], max_length, **kwargs)
@@ -252,7 +281,10 @@ def run_train(cfg: Config, args) -> int:
     output_dir = Path(args.output_dir) if args.output_dir else cfg.path_for("Training", "output_dir")
     adapter_dir = Path(output_dir) / (args.expert or "expert")
 
-    optim_name = {"adamw": "adamw_torch", "adafactor": "adafactor"}[optimizer]
+    if quant in ("8bit", "4bit") and optimizer == "adamw":
+        optim_name = "paged_adamw_8bit"   # bitsandbytes 8-bit optimizer states
+    else:
+        optim_name = {"adamw": "adamw_torch", "adafactor": "adafactor"}[optimizer]
     training_args = TrainingArguments(
         output_dir=str(adapter_dir),
         per_device_train_batch_size=cfg.get_int("Training", "batch_size", 1),
@@ -322,6 +354,10 @@ def parse_args(argv=None):
                         help="Optimizer (default: Training.optimizer in config.md)")
     parser.add_argument("--dtype", default=None,
                         help="Override Models.base_hf_dtype (float32/bfloat16/float16)")
+    parser.add_argument("--quantization", choices=["fp32", "bf16", "8bit", "4bit"],
+                        default=None,
+                        help="Training precision (default: Quantization.default_quantization). "
+                             "8bit/4bit need bitsandbytes on a CUDA GPU.")
     return parser.parse_args(argv)
 
 

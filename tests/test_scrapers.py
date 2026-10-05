@@ -127,18 +127,23 @@ def test_hf_downloader_applies_guards(tmp_path, monkeypatch):
     cfg = Config.load(_write_config(tmp_path))
     log = hfd.RunLog(tmp_path / "log.txt")
     # gated dataset -> skipped
+    def meta(total, gated, biggest, downloads=500, license_id="mit", readme=True, data=3):
+        return {"total_bytes": total, "max_file_bytes": biggest, "gated": gated,
+                "downloads": downloads, "likes": 1, "license": license_id,
+                "has_readme": readme, "data_files": data, "files": data + 1}, None
+
     monkeypatch.setattr(hfd, "dataset_meta",
-                        lambda api, rid, token: (10 * MB, True, 1 * MB, None))
+                        lambda api, rid, token: meta(10 * MB, True, 1 * MB))
     res = hfd.download_dataset(cfg, "owner/gated", "cat", log, api=object())
     assert (res["action"], res["reason"]) == ("skip", "gated")
     # dataset too large -> skipped
     monkeypatch.setattr(hfd, "dataset_meta",
-                        lambda api, rid, token: (9000 * MB, False, 10 * MB, None))
+                        lambda api, rid, token: meta(9000 * MB, False, 10 * MB))
     res = hfd.download_dataset(cfg, "owner/big", "cat", log, api=object())
     assert res["action"] == "skip" and "dataset_too_large" in res["reason"]
     # single file too large -> skipped
     monkeypatch.setattr(hfd, "dataset_meta",
-                        lambda api, rid, token: (100 * MB, False, 800 * MB, None))
+                        lambda api, rid, token: meta(100 * MB, False, 800 * MB))
     res = hfd.download_dataset(cfg, "owner/blob", "cat", log, api=object())
     assert res["action"] == "skip" and "file_too_large" in res["reason"]
     # --allow-large overrides the size ceilings
@@ -146,6 +151,19 @@ def test_hf_downloader_applies_guards(tmp_path, monkeypatch):
                                allow_large=True, api=object())
     assert res["action"] == "download"
     log.close()
+
+
+def test_hf_quality_gate_rejections(tmp_path):
+    from scrapers.huggingface import hf_downloader as hfd
+    cfg = Config.load(_write_config(tmp_path))
+    good = {"total_bytes": 10 * MB, "max_file_bytes": MB, "gated": False,
+            "downloads": 100, "likes": 1, "license": "mit", "has_readme": True,
+            "data_files": 2, "files": 3}
+    assert hfd.hf_quality_gate(cfg, good) == []
+    assert "low_downloads(0)" in hfd.hf_quality_gate(cfg, {**good, "downloads": 0})
+    assert "no_license" in hfd.hf_quality_gate(cfg, {**good, "license": None})
+    assert "no_readme" in hfd.hf_quality_gate(cfg, {**good, "has_readme": False})
+    assert "no_data_files" in hfd.hf_quality_gate(cfg, {**good, "data_files": 0})
 
 
 def _write_config(root: Path) -> Path:
