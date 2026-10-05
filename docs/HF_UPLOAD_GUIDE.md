@@ -6,6 +6,40 @@ https://huggingface.co/michaelowusuntim6
 Every dataset ships `train.jsonl`, `val.jsonl`, `manifest.json` and a
 `README.md` card with YAML frontmatter, source attribution and licence.
 
+## How to train on these datasets
+
+Two ready-to-run notebooks are in `notebooks/`:
+
+- `qwen35_0.8b_colab.ipynb` — free Colab T4 (bf16 LoRA, ~3 GB VRAM)
+- `qwen35_0.8b_kaggle.ipynb` — free Kaggle T4 x2 (bf16 LoRA, batch 2)
+
+Pick any dataset (or combine several), set `EXPERT_NAME`, and run. `DATASETS`
+accepts a single name, a list to concatenate, or a weighted dict to interleave:
+
+```python
+DATASETS = {"code-review-qwen35": 0.6, "debug-qwen35": 0.4}   # weights sum to 1.0
+EXPERT_NAME = "code-review-lora"
+PUSH_TO_HUB = True
+```
+
+Adapters are pushed to `michaelowusuntim6/<expert-name>-lora`.
+
+## Dataset integrity
+
+All 30 datasets are validated by `scripts/verify_hf_datasets.py`:
+
+- `messages` is a list of at least 2 dicts
+- each dict has `role` (system | user | assistant | tool) and `content` (string)
+- at least one user turn and one assistant turn
+- no empty content strings, and no vision-style list content
+
+`tool` is accepted because it is a first-class role in the Qwen3.5 chat
+template (it renders `<tool_response>` blocks); agentic corpora such as
+`agent-tool-qwen35` and `debug-qwen35` legitimately contain it.
+
+Last verified: 2026-10-05T16:03:56+00:00 — **30/30 datasets clean**
+(report: `datasets/_validation_report.json`).
+
 ## Android / LineageOS
 
 ### Android / LineageOS Support Corpus (`android-qwen35`)
@@ -302,7 +336,9 @@ print(ds[0]["messages"])
 ## How to fine-tune on Colab
 
 Open [`notebooks/qwen35_0.8b_colab.ipynb`](../notebooks/qwen35_0.8b_colab.ipynb)
-(or the Kaggle variant for T4 x2) and set `DATASET_NAME` to any repo above.
+(or the Kaggle variant for T4 x2) and set `DATASETS` to any repo above. Set
+`EXPERT_NAME` (e.g. `code-review-lora`) and `PUSH_TO_HUB = True` to publish the
+adapter to `michaelowusuntim6/<expert-name>-lora`.
 
 ## License summary
 
