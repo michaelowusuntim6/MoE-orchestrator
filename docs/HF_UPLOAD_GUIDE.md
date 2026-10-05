@@ -302,7 +302,7 @@ print(ds[0]["messages"])
 ## How to fine-tune on Colab
 
 Open [`notebooks/qwen35_0.8b_colab.ipynb`](../notebooks/qwen35_0.8b_colab.ipynb)
-(or the Kaggle variant for a P100) and set `DATASET_NAME` to any repo above.
+(or the Kaggle variant for T4 x2) and set `DATASET_NAME` to any repo above.
 
 ## License summary
 

@@ -115,7 +115,7 @@ Last completed step: 1.6 training-memory fix — 8192-token step verified on CPU
 
 ## Phase 1.13 — Training notebooks
 - [x] 1.13.1 notebooks/qwen35_0.8b_colab.ipynb (T4, bf16 LoRA)
-- [x] 1.13.2 notebooks/qwen35_0.8b_kaggle.ipynb (P100, fp16 + 4-bit QLoRA)
+- [x] 1.13.2 notebooks/qwen35_0.8b_kaggle.ipynb (T4 x2, bf16 LoRA, batch 2)
 - [x] 1.13.3 notebooks/qwen35_moe_composition.ipynb (template)
 - [x] 1.13.4 notebooks/upload_to_hf.ipynb (helper)
 - [x] 1.13.5 notebooks/README.md

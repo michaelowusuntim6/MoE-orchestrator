@@ -166,5 +166,5 @@ All 30 formatted corpora are published at
 See [`docs/HF_UPLOAD_GUIDE.md`](docs/HF_UPLOAD_GUIDE.md) for the full list with
 links, record counts, sources and licences.
 
-Train on Colab: [`notebooks/qwen35_0.8b_colab.ipynb`](notebooks/qwen35_0.8b_colab.ipynb)
-(Kaggle P100 variant: [`notebooks/qwen35_0.8b_kaggle.ipynb`](notebooks/qwen35_0.8b_kaggle.ipynb)).
+Train on Colab (T4 x1): [`notebooks/qwen35_0.8b_colab.ipynb`](notebooks/qwen35_0.8b_colab.ipynb)
+(Kaggle T4 x2 variant: [`notebooks/qwen35_0.8b_kaggle.ipynb`](notebooks/qwen35_0.8b_kaggle.ipynb)).

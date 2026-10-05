@@ -1,16 +1,119 @@
-venv*/
+# ─── Python ───────────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ─── Virtual environments ────────────────────────────────────
+venv/
+venv-inference/
+.venv/
+.venv*/
+env/
+ENV/
+
+# ─── Jupyter ─────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# ─── Models (too large for git) ──────────────────────────────
 models/Qwen3.5-0.8B/
 models/*.gguf
+models/*.safetensors
+models/*.bin
+models/*.pt
+models/*.onnx
+models/*.msgpack
+
+# ─── Datasets (on HF, not in git) ────────────────────────────
 datasets/downloaded/
-datasets/generated/
-datasets/formatted/
 datasets/public/
+datasets/formatted/
+datasets/generated/
+datasets/specs/
+
+# ─── Training artifacts ──────────────────────────────────────
+training/adapters/
+training/merged/
+training/outputs/
+training/checkpoints/
+*.safetensors
+*.bin
+*.pt
+
+# ─── LoFT runtime ────────────────────────────────────────────
+LoFT/output/
+LoFT/checkpoints/
+LoFT/*.log
+LoFT/.cache/
+LoFT/venv/
+LoFT/__pycache__/
+
+# ─── Scraper runtime ─────────────────────────────────────────
 scrapers/logs/*
 !scrapers/logs/.gitkeep
-training/adapters/*
-!training/adapters/.gitkeep
-training/merged/
-*.log
-.pytest_cache/
+
+# ─── Secrets ─────────────────────────────────────────────────
+.env
+.env.*
+*.token
+HF_TOKEN
+GITHUB_TOKEN
+kaggle.json
+.kaggle/
+.huggingface/
+.cache/huggingface/
+
+# ─── IDE / editor ────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS junk ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Trash / scratch ─────────────────────────────────────────
+/tmp/
+*.tmp
+*.bak
+
+# ─── HF Hub cache ────────────────────────────────────────────
+.cache/
+
+# ─── Large data shards ───────────────────────────────────────
+*.parquet
+*.arrow
+*.jsonl.gz
+*.json.gz
+*.tar.zst
+*.tar.gz
+*.tar.bz2
+*.zip
+*.7z

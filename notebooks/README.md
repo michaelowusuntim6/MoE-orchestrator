@@ -6,7 +6,7 @@ MoE-orchestrator corpora.
 | notebook | what it does | hardware |
 |---|---|---|
 | [`qwen35_0.8b_colab.ipynb`](qwen35_0.8b_colab.ipynb) | Fine-tune Qwen3.5-0.8B with LoRA on any of the 30 published datasets | Colab T4 (16 GB), bf16, ~3 GB VRAM |
-| [`qwen35_0.8b_kaggle.ipynb`](qwen35_0.8b_kaggle.ipynb) | Same, using 4-bit QLoRA because the Kaggle P100 has no native bf16 | Kaggle P100 (16 GB), fp16 + 4-bit, ~11.2 GB peak |
+| [`qwen35_0.8b_kaggle.ipynb`](qwen35_0.8b_kaggle.ipynb) | Same, with `device_map="auto"` across both GPUs and batch size 2 | Kaggle T4 x2 (32 GB), bf16 LoRA, ~10 min/epoch on 10k records |
 | [`qwen35_moe_composition.ipynb`](qwen35_moe_composition.ipynb) | Compose trained expert adapters (PEFT weighted merge or MergeKit) and show the routing decision | template, needs trained experts |
 | [`upload_to_hf.ipynb`](upload_to_hf.ipynb) | Validate a local JSONL, attach a card, push it and verify it loads | helper for future sessions |
 
