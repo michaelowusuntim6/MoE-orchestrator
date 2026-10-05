@@ -115,3 +115,21 @@ Outputs: `datasets/public/{huggingface,github,lineageos_tree}/`, with logs in
 `scrapers/logs/`. Verified sources and sizes are in
 [`docs/DATASET_SOURCES.md`](docs/DATASET_SOURCES.md); see
 [`scrapers/README.md`](scrapers/README.md) for per-tool flags.
+
+### Acquisition status (2026-10-05)
+
+The first campaign ran: 6 HF datasets downloaded, 3 oversized sharded
+datasets streamed at 500 MB each, 4 MQL5 repos cloned (kernel repos
+deliberately excluded — the local tree covers kernel source), and the
+LineageOS tree walked read-only (200,000 files, 2.19 GB). Nine new formatted
+corpora were produced — **615,330 records** — all template-verified and
+≤2.5% truncated at `max_length = 8192`:
+
+```bash
+./venv-inference/bin/python scrapers/format_public.py --all
+./venv-inference/bin/python datasets/scripts/format_for_training.py --verify-template \
+    --category supportbench_lineageos --category lineageos_tree --category kernel_vuln
+```
+
+The full inventory (21 categories, 2,604,368 records) is
+[`datasets/_master_manifest.md`](datasets/_master_manifest.md).

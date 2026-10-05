@@ -1,6 +1,6 @@
 # MoE Orchestrator — master TODO list
 
-Last updated: 2026-10-05T10:30:00Z
+Last updated: 2026-10-05T12:10:00Z
 Current phase: 2 (data formatted for training; expert plan written)
 Last completed step: 1.6 training-memory fix — 8192-token step verified on CPU
 
@@ -68,6 +68,19 @@ Last completed step: 1.6 training-memory fix — 8192-token step verified on CPU
 - [x] 1.7.11 docs/DATASET_SOURCES.md with verified sizes
 - [x] 1.7.12 tests/test_scrapers.py (14 passing)
 - [x] 1.7.13 All four dry-runs pass (hf_search, hf_downloader, github, lineageos)
+
+## Phase 1.8 — Data acquisition (download, scrape, format)
+- [x] 1.8.1 Removed the android_kernel category from repo_list.md (kernel trees excluded)
+- [x] 1.8.2 Downloaded 6 HF datasets for real (176.7 MB, 0 failures)
+- [x] 1.8.3 Streamed 3 oversized sharded datasets at 500 MB each
+- [x] 1.8.4 Skipped DevEscorpion/android-firmware-research (134 GB, monolithic 4.3 GB file)
+- [x] 1.8.5 Cloned the 4 MQL5 GitHub repos (51.4 MB; 359 .mq5, 1,077 .mqh)
+- [x] 1.8.6 Walked the LineageOS 23.2 tree: 200,000 files, 2.19 GB catalogued (read-only)
+- [x] 1.8.7 Built scrapers/format_public.py with 9 adapters
+- [x] 1.8.8 Formatted 9 new categories: 615,330 records total
+- [x] 1.8.9 --verify-template PASS for all 9 new categories (and all 12 existing)
+- [x] 1.8.10 Tokenize-and-drop: <=2.5% truncation, 0% all-zero masks on every new category
+- [x] 1.8.11 datasets/_master_manifest.md written
 
 ## Phase 3 — Fine-tune experts
 - [ ] 3.1 Fine-tune the first expert with `training/finetune.py`
@@ -153,6 +166,15 @@ contains LoFT's sources. Upstream tracking is manual and documented in
 [10:30:00] Verified 10 HF datasets (1 x 404 removed) and 7 GitHub repos (0 x 404) via API; wrote dataset_list.md + repo_list.md with sizes
 [10:35:00] lineageos_walker --dry-run: 200,000 files / 2.0 GB matched in 4m43s, 50,686 device-specific, 23 files > 10 MB skipped
 [10:40:00] tests/test_scrapers.py: 14 passing; all four scraper dry-runs pass; no datasets downloaded
+[2026-10-05 11:00] Removed the android_kernel category from repo_list.md; kernel trees are excluded by policy
+[11:05:00] HF downloads: 6 ok / 4 skipped / 0 failed (176.7 MB) — exactly the planned set
+[11:20:00] Streamed 3 oversized sharded datasets at 500 MB each: codeparrot-clean (48,905 raw records), syzfix-dataset (502.6 MB / 1,923), kernel-vuln-dataset-full (500 MB / 101,023)
+[11:35:00] GitHub: cloned 4 MQL5 repos (51.4 MB; 359 .mq5, 1,077 .mqh); no file exceeded 500 MB
+[11:40:00] LineageOS walk (read-only): 200,000 files / 2.19 GB catalogued, 50,686 device-priority, 23 files >10 MB skipped
+[11:50:00] Wrote scrapers/format_public.py (reuses the canonical schema, reject taxonomy, dedup and split)
+[12:00:00] Formatted 9 new categories: 615,330 records (largest: lineageos_tree 194,832; kernel_vuln 241,116)
+[12:05:00] --verify-template PASS on all 9; tokenize-and-drop <=2.5% truncation, 0% all-zero masks
+[12:10:00] datasets/_master_manifest.md written (2,604,368 records across 21 categories)
 
 [19:40:00] AUDIT: verified one commit (372b863), tree clean, 143 datasets downloaded
 [19:41:00] A.5 download integrity: 143/143 OK dirs present and non-empty, 0 missing, 0 empty, 0 untracked dirs; real on-disk size 9.44 GiB (API estimate 14.75 GiB)

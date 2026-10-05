@@ -20,11 +20,9 @@ EA31337/EA31337-classes
 # Pierre8r/All-MQL5-code — 2.1 MB — DOWNLOADABLE
 Pierre8r/All-MQL5-code
 
-## android_kernel
-# LineageOS/android_kernel_samsung_exynos850 — 2201 MB — SKIP at the default
-# 2048 MB cap; pass --allow-large (or raise github_max_repo_mb) to clone it.
-LineageOS/android_kernel_samsung_exynos850
-# samsungexynos850/local_manifests — 0.0 MB — DOWNLOADABLE
-samsungexynos850/local_manifests
-# lesdieuxx/android_kernel_a047f_resukisu — 218 MB — DOWNLOADABLE
-lesdieuxx/android_kernel_a047f_resukisu
+# NOTE (2026-10-05): the android_kernel category was deliberately removed.
+# Kernel source repositories are NOT cloned — the local LineageOS 23.2 tree
+# already contains kernel/samsung/ (including exynos850 and a04s) and that is
+# covered by scrapers/lineageos/lineageos_walker.py instead. Previously listed
+# and now excluded: LineageOS/android_kernel_samsung_exynos850,
+# samsungexynos850/local_manifests, lesdieuxx/android_kernel_a047f_resukisu.

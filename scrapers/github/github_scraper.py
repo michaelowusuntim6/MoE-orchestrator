@@ -50,6 +50,8 @@ def parse_args(argv=None):
                         help="Re-clone even if the directory already has files")
     parser.add_argument("--allow-large", action="store_true",
                         help="Ignore the repo/file size ceilings")
+    parser.add_argument("--all", action="store_true",
+                        help="Process every entry in the list (the default behavior)")
     return parser.parse_args(argv)
 
 

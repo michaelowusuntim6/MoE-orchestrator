@@ -723,6 +723,17 @@ def main(argv=None) -> int:
     kwargs = template_kwargs(args.enable_thinking, extra)
 
     entries = dataset_dirs(root)
+    # --verify-template / --sample operate on what is already formatted, so
+    # they must not depend on the download root (public corpora live outside it).
+    if args.verify_template or args.sample:
+        cats = list(args.category) if args.category else sorted(
+            p.name for p in formatted_root.iterdir() if p.is_dir())
+        if args.verify_template:
+            return verify_template(formatted_root, cats,
+                                   cfg.get_int("Training", "max_length", 128), kwargs)
+        sample(cats, formatted_root, args.sample)
+        return 0
+
     if not args.no_generated:
         for name, key in (("generated_lineageos", "generated_lineageos"),
                           ("generated_mql5", "generated_mql5")):
@@ -738,12 +749,6 @@ def main(argv=None) -> int:
     categories = sorted({e[0] for e in entries})
     if not categories:
         raise SystemExit("error: no datasets matched the given --category/--dataset")
-
-    if args.verify_template:
-        return verify_template(formatted_root, categories, cfg.get_int("Training", "max_length", 128), kwargs)
-    if args.sample:
-        sample(categories, formatted_root, args.sample)
-        return 0
 
     if args.dry_run:
         print(f"dry run: {len(entries)} datasets across {len(categories)} categories")

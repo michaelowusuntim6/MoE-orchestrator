@@ -57,6 +57,8 @@ def parse_args(argv=None):
     parser.add_argument("--output", default=None, help="Override the catalog path")
     parser.add_argument("--max-files", type=int, default=None,
                         help="Override lineageos_max_files")
+    parser.add_argument("--catalog", action="store_true",
+                        help="Write the catalog JSON (default behavior)")
     return parser.parse_args(argv)
 
 

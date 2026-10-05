@@ -260,3 +260,38 @@ def test_uploader_readme_template(fixture_root, capsys):
     assert code == 0
     assert "dry-run" in out and "huggingface.co/datasets/tester/code-python" in out
     assert not (folder / "README.md").exists(), "dry run must not write the card"
+
+
+# -- public formatter -------------------------------------------------------
+def test_format_public_kernel_vuln_rows():
+    from scrapers import format_public as fp
+    row = {
+        "fixing_commit": "abc123", "introducing_commit": "def456",
+        "subsystem": "networking/ipv6", "subsystem_path": "net/ipv6/route.c",
+        "bug_type": "crash", "severity_hint": "high", "cve_id": "CVE-2026-0001",
+        "lifetime_days": "469", "fix_subject": "ipv6: fix a BUG",
+        "fix_author": "A Dev", "files_changed": "2", "insertions": "5",
+        "deletions": "1", "keywords": "oops", "related_fixes": "deadbeef",
+        "stable_versions": "6.6",
+    }
+    records = list(fp._kernel_vuln_records_from_rows([row]))
+    assert len(records) == 2  # "why vulnerable" + "how fixed"
+    for record in records:
+        roles = [m["role"] for m in record["messages"]]
+        assert roles == ["user", "assistant"]
+        assert all("<|im_start|>" not in m["content"] for m in record["messages"])
+    assert "def456" in records[0]["messages"][0]["content"]
+    assert "CVE-2026-0001" in records[0]["messages"][1]["content"]
+
+
+def test_format_public_verdict_and_message_shape():
+    from scrapers import format_public as fp
+    passing = fp.verdict_sentence([{"bucket": "compile-pass", "arm": "frontier",
+                                    "ex5_exists": True}])
+    failing = fp.verdict_sentence([{"bucket": "compile-fail", "errors": 4}])
+    assert "compile-pass" in passing and "errors=0" in passing
+    assert "compile-fail" in failing
+
+    record = fp.rec("You are a support expert.", "q", "a")
+    assert [m["role"] for m in record["messages"]] == ["system", "user", "assistant"]
+    assert set(record) == {"messages"}

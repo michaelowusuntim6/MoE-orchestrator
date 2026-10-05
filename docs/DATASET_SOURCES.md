@@ -1,5 +1,34 @@
 # Dataset sources
 
+## Acquisition result (2026-10-05, Prompt 2)
+
+All sources below were acquired. Nothing was uploaded.
+
+| source | disposition | actual |
+|---|---|---|
+| `pavelshpagin/SupportBench` | downloaded | 61.1 MB |
+| `quguanni/kernel-vuln-dataset` | downloaded | 43.3 MB |
+| `pebblebed/kernel-vuln-dataset` | downloaded | 43.3 MB (duplicate content of quguanni) |
+| `CompilingThings/compile-benchmark` | downloaded | 23.9 MB |
+| `shahrukh95/OWASP-and-NVD-question-answer-dataset` | downloaded | 7.7 MB |
+| `shahrukh95/NVD-question-answer-dataset` | downloaded | 6.0 MB |
+| `codeparrot/codeparrot-clean` | **streamed sample** | 500.0 MB of 12.8 GB → 48,905 records |
+| `xiaoguangwang/syzfix-dataset` | **streamed sample** | 502.6 MB of 5.1 GB → 1,923 records |
+| `quguanni/kernel-vuln-dataset-full` | **streamed sample** | 500.0 MB of 1.9 GB → 101,023 records |
+| `DevEscorpion/android-firmware-research` | **skipped** | 134 GB total with a monolithic 4.3 GB file — not streamable |
+| 4 MQL5 GitHub repos | cloned | 51.4 MB → 359 `.mq5`, 1,077 `.mqh` |
+| Local LineageOS 23.2 tree | walked (read-only) | 200,000 files, 2.19 GB, 50,686 device-priority |
+| `LineageOS/android_kernel_samsung_exynos850`, `samsungexynos850/local_manifests`, `lesdieuxx/android_kernel_a047f_resukisu` | **excluded** | policy: kernel repositories are not cloned; the local tree covers kernel source |
+
+Formatted output: 9 new categories, **615,330 records**, all template-verified
+and ≤2.5% truncated at `max_length = 8192`. Full detail in
+`datasets/_master_manifest.md`.
+
+Note on `mql5_benchmark`: the public release ships prompts plus compile
+verdicts and **withholds completions** (its own `PROJECTION_REPORT.json` lists
+`private_outputs`/`withheld_fields`). The assistant turn therefore carries the
+release's verdict sentence rather than generated MQL5 code.
+
 Verified against the Hugging Face and GitHub APIs on **2026-10-05**. Sizes are
 the sum of the files the API reports for the default revision. Nothing in this
 table has been downloaded yet.

@@ -98,3 +98,31 @@ tokens), so weights stay fp32. Details in `docs/DATA_PIPELINE.md` §7.
 **`debug_review` is unblocked.** Note the cost is wall-clock, not memory: a
 full-length (8k-token) step takes ~20 minutes on this CPU, so cap runs with
 `--limit` and prefer shorter records while iterating.
+
+## Public-corpus additions (2026-10-05 campaign)
+
+Nine new formatted categories add **615,330 records**. Mapping to experts:
+
+| expert | new corpora | added records |
+|---|---|---:|
+| `android` | `supportbench_lineageos` (4,741) + `lineageos_tree` (194,832) | 199,573 |
+| `linux_kernel` | `kernel_vuln` (241,116) + `kernel_vuln_full_sample` (100,506) + `kernel_syzfix_sample` (1,918) | 343,540 |
+| `security` | `security_qa` (22,953) | 22,953 |
+| `code_python` | `python_codeparrot_sample` (48,023) | 48,023 |
+| `mql5_optional` | `mql5_repos` (1,057) + `mql5_benchmark` (184) | 1,241 |
+
+Consequences:
+
+* **`linux_kernel` is now a first-class expert**, not a folded-in side source:
+  343,540 real kernel vulnerability records (bug types, CVE ids, lifetimes,
+  commit subjects and real patch diffs from syzfix).
+* **`mql5_optional` is now viable**: 1,241 records of real MQL5 source
+  (359 `.mq5` + 1,077 `.mqh` files across four repositories) plus the
+  benchmark prompts and their compile verdicts.
+* **`android` gains 199,573 records** of real LineageOS framework, device and
+  sepolicy source, ordered device-first (A04s / Exynos850).
+* The 4 kernel GitHub repos remain deliberately excluded; kernel source comes
+  from the local tree walk and the vulnerability datasets.
+
+All nine new categories pass `--verify-template` and measure ≤2.5% truncation
+with 0% all-zero masks at `max_length = 8192`.

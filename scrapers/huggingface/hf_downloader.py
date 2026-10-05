@@ -62,6 +62,15 @@ def parse_args(argv=None):
                         help="Re-download even if the directory already has files")
     parser.add_argument("--allow-large", action="store_true",
                         help="Ignore the file/dataset size ceilings")
+    parser.add_argument("--all", action="store_true",
+                        help="Process every entry in the list (the default behavior)")
+    parser.add_argument("--stream", action="store_true",
+                        help="Stream large datasets instead of snapshot_download, "
+                             "writing at most --stream-sample-mb of records")
+    parser.add_argument("--stream-sample-mb", type=int, default=500,
+                        help="Per-dataset byte budget when --stream is used")
+    parser.add_argument("--split", default=None,
+                        help="Dataset split to stream (default: every split)")
     return parser.parse_args(argv)
 
 
@@ -181,6 +190,75 @@ def download_dataset(cfg, repo_id: str, category: str, log: RunLog,
     return result
 
 
+def stream_sample(cfg, repo_id: str, category: str, log: RunLog,
+                  sample_mb: int = 500, split: str | None = None,
+                  dry_run: bool = False) -> dict:
+    """Stream a dataset and keep the first `sample_mb` of records as JSONL.
+
+    This is the escape hatch for datasets whose shards exceed the 500 MB
+    per-file ceiling: we never materialise a shard, we pull records from the
+    Hub's streaming iterators and stop at the byte budget.
+    """
+    scrapers = "Scrapers"
+    output_root = cfg.path_for(scrapers, "hf_output_root", "datasets/public/huggingface")
+    dest = output_root / category / repo_id.replace("/", "__")
+    out_path = dest / "sample.jsonl"
+    target_bytes = max(1, sample_mb) * MB
+    token = os.environ.get(cfg.get_str(scrapers, "hf_token_env", "HF_TOKEN")) or None
+
+    result = {"dataset": repo_id, "category": category, "path": str(dest),
+              "action": None, "reason": "", "bytes": 0, "records": 0,
+              "sample_mb": sample_mb}
+    if not dry_run and dir_has_files(dest):
+        result.update(action="skip", reason="already_downloaded")
+        return result
+    if dry_run:
+        result.update(action="stream", reason="dry-run")
+        return result
+
+    from datasets import load_dataset
+    dest.mkdir(parents=True, exist_ok=True)
+    written = records = 0
+    splits_seen = []
+    try:
+        streamed = load_dataset(repo_id, streaming=True, token=token)
+    except Exception as exc:
+        try:
+            streamed = load_dataset(repo_id, streaming=True, token=token,
+                                    split=split or "train")
+            streamed = {split or "train": streamed}
+        except Exception as exc2:
+            result.update(action="fail",
+                          reason=f"{type(exc2).__name__}: {exc2}")
+            return result
+    if hasattr(streamed, "keys"):
+        streams = ([ (split, streamed[split]) ] if split and split in streamed
+                   else list(streamed.items()))
+    else:
+        streams = [(split or "train", streamed)]
+
+    with out_path.open("w", encoding="utf-8") as handle:
+        for split_name, iterator in streams:
+            splits_seen.append(split_name)
+            for record in iterator:
+                line = json.dumps(record, ensure_ascii=False, default=str)
+                handle.write(line + "\n")
+                written += len(line.encode("utf-8")) + 1
+                records += 1
+                if written >= target_bytes:
+                    break
+            if written >= target_bytes:
+                break
+
+    meta = {"dataset": repo_id, "category": category, "mode": "stream",
+            "sample_mb": sample_mb, "bytes_written": written, "records": records,
+            "splits": splits_seen, "truncated": True,
+            "note": "streamed sample; the full dataset was never materialised"}
+    (dest / "_sample.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    result.update(action="ok", bytes=written, records=records, splits=splits_seen)
+    return result
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
     cfg = load_config(args.config)
@@ -215,9 +293,12 @@ def main(argv=None) -> int:
     started_at = now_iso()
 
     if args.dry_run:
-        print("\n--dry-run: would query the HF API and then download:")
+        verb = "stream-sample" if args.stream else "download"
+        print(f"\n--dry-run: would query the HF API and then {verb}:")
         for category, rid in entries:
             print(f"  {category:16} {rid}")
+        if args.stream:
+            print(f"\nstreaming budget: {args.stream_sample_mb} MB per dataset")
         print(f"\nwould write to {cfg.path_for(scrapers, 'hf_output_root')}/<category>/<owner>__<name>/")
         print(f"this dry run made no API calls and downloaded nothing")
         return 0
@@ -229,13 +310,22 @@ def main(argv=None) -> int:
     rows = []
     try:
         for i, (category, rid) in enumerate(entries, 1):
-            res = download_dataset(cfg, rid, category, log, force=args.force,
-                                   dry_run=False, allow_large=args.allow_large, api=api)
+            if args.stream:
+                res = stream_sample(cfg, rid, category, log,
+                                    sample_mb=args.stream_sample_mb, split=args.split)
+            else:
+                res = download_dataset(cfg, rid, category, log, force=args.force,
+                                       dry_run=False, allow_large=args.allow_large, api=api)
             rows.append(res)
             if res["action"] == "ok":
                 counters["ok"] += 1
                 counters["bytes"] += res.get("bytes", 0)
-                log.write(f"OK {rid} {res.get('bytes',0)} {res.get('seconds',0)}")
+                if args.stream:
+                    counters["records"] = counters.get("records", 0) + res.get("records", 0)
+                    log.write(f"OK {rid} STREAM {res.get('bytes',0)} "
+                              f"records={res.get('records',0)}")
+                else:
+                    log.write(f"OK {rid} {res.get('bytes',0)} {res.get('seconds',0)}")
             elif res["action"] == "skip":
                 counters["skipped"] += 1
                 log.write(f"SKIP {rid} {res['reason']}")
