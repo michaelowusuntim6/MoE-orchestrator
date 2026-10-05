@@ -87,3 +87,31 @@ key, reject taxonomy and the measured `max_length` limit.
 See [`config.md`](config.md) for every tunable and
 [`MoE_ToDo_List.md`](MoE_ToDo_List.md) for what is done and what is next.
 The architecture plan lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Scrapers — acquiring more datasets
+
+`scrapers/` holds the acquisition infrastructure for the next campaign
+(Android/LineageOS, Exynos850 kernel, MQL5, security, coding). Everything
+reads the same `config.md`, and no single downloaded file may exceed 500 MB.
+
+```bash
+cd ~/MoE-orchestrator
+
+# 1. see what each tool would do — none of these download anything
+./venv-inference/bin/python scrapers/huggingface/hf_search.py --dry-run
+./venv-inference/bin/python scrapers/huggingface/hf_downloader.py --dry-run
+./venv-inference/bin/python scrapers/github/github_scraper.py --dry-run
+./venv-inference/bin/python scrapers/lineageos/lineageos_walker.py --dry-run
+
+# 2. when ready, drop --dry-run (reads HF_TOKEN / GITHUB_TOKEN from the env)
+# ./venv-inference/bin/python scrapers/huggingface/hf_downloader.py
+
+# 3. catalog the local LineageOS tree (read-only) and extract AOSP snippets
+./venv-inference/bin/python scrapers/lineageos/lineageos_walker.py --sample 500
+./venv-inference/bin/python scrapers/lineageos/aosp_scraper.py --dry-run
+```
+
+Outputs: `datasets/public/{huggingface,github,lineageos_tree}/`, with logs in
+`scrapers/logs/`. Verified sources and sizes are in
+[`docs/DATASET_SOURCES.md`](docs/DATASET_SOURCES.md); see
+[`scrapers/README.md`](scrapers/README.md) for per-tool flags.

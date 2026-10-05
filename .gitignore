@@ -6,6 +6,9 @@ models/*.gguf
 datasets/downloaded/
 datasets/generated/
 datasets/formatted/
+datasets/public/
+scrapers/logs/*
+!scrapers/logs/.gitkeep
 training/adapters/*
 !training/adapters/.gitkeep
 training/merged/

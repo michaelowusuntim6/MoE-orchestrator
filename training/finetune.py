@@ -232,10 +232,11 @@ def run_train(cfg: Config, args) -> int:
     model = build_lora(cfg, model, args.target_modules)
     chunk_size = args.chunk_size or cfg.get_int("Training", "chunk_size", 256)
 
+    optimizer = args.optimizer or cfg.get_str("Training", "optimizer", "adamw")
     rows = load_examples(dataset_path, args.limit)
     print(f"training on {len(rows)} examples from {dataset_path} "
           f"(max_length={max_length}, loss={args.loss_mode}, chunk_size={chunk_size}, "
-          f"optim={args.optimizer})")
+          f"optim={optimizer})")
 
     def to_features(example):
         enc = tokenize_chat(tokenizer, example["messages"], max_length, **kwargs)
@@ -251,7 +252,7 @@ def run_train(cfg: Config, args) -> int:
     output_dir = Path(args.output_dir) if args.output_dir else cfg.path_for("Training", "output_dir")
     adapter_dir = Path(output_dir) / (args.expert or "expert")
 
-    optim_name = {"adamw": "adamw_torch", "adafactor": "adafactor"}[args.optimizer]
+    optim_name = {"adamw": "adamw_torch", "adafactor": "adafactor"}[optimizer]
     training_args = TrainingArguments(
         output_dir=str(adapter_dir),
         per_device_train_batch_size=cfg.get_int("Training", "batch_size", 1),
@@ -317,8 +318,8 @@ def parse_args(argv=None):
                         help="Sequence chunk for the chunked cross-entropy (default: Training.chunk_size)")
     parser.add_argument("--loss-mode", choices=["chunked", "standard"], default="chunked",
                         help="chunked = never materialise the full vocab logits")
-    parser.add_argument("--optimizer", choices=["adamw", "adafactor"], default="adamw",
-                        help="Optimizer (adafactor uses far less state)")
+    parser.add_argument("--optimizer", choices=["adamw", "adafactor"], default=None,
+                        help="Optimizer (default: Training.optimizer in config.md)")
     parser.add_argument("--dtype", default=None,
                         help="Override Models.base_hf_dtype (float32/bfloat16/float16)")
     return parser.parse_args(argv)

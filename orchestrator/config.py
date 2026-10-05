@@ -124,6 +124,10 @@ class Config:
             return value
         return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
+    def get_str(self, section: str, key: str, default=_MISSING) -> str:
+        """Value as a string (quotes already stripped by the parser)."""
+        return str(self.get(section, key, default))
+
     def get_list(self, section: str, key: str, default=_MISSING) -> list:
         value = self.get(section, key, [] if default is _MISSING else default)
         if isinstance(value, list):
@@ -138,3 +142,6 @@ class Config:
         raw = self.get(section, key, default)
         candidate = Path(str(raw)).expanduser()
         return candidate if candidate.is_absolute() else (self.root / candidate)
+
+    #: Alias with the name the scraper spec uses.
+    get_path = path_for

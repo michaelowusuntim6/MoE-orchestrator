@@ -85,6 +85,87 @@ timeout_seconds: 900
 # Result of the last downloader run (143 ok / 49 skipped / 0 failed).
 last_run_status: datasets/downloaded/_status.json
 
+## Scrapers
+
+# GitHub scraping
+github_token_env: GITHUB_TOKEN
+github_max_file_mb: 500
+github_max_repo_mb: 2048
+github_clone_depth: 1
+github_skip_forks: true
+github_skip_archived: false
+github_timeout_seconds: 600
+github_repos_file: scrapers/github/repo_list.md
+github_output_root: datasets/public/github
+
+# Hugging Face scraping
+hf_token_env: HF_TOKEN
+hf_max_file_mb: 500
+hf_max_dataset_mb: 5120
+hf_use_streaming: true
+hf_stream_sample_mb: 100
+hf_skip_gated: true
+hf_dataset_list_file: scrapers/huggingface/dataset_list.md
+hf_output_root: datasets/public/huggingface
+hf_search_keywords:
+  - lineageos
+  - aosp
+  - android-kernel
+  - exynos850
+  - mql5
+  - metatrader
+  - forex
+  - linux-kernel
+  - kernel-vuln
+  - kernel-security
+  - android-firmware
+  - android-security
+  - codeparrot
+  - python-code
+  - cpp-code
+hf_search_max_results: 100
+hf_search_min_downloads: 10
+
+# LineageOS tree walking (read-only; the tree is never modified)
+lineageos_tree_root: /run/media/mike/Android/lineage-23.2
+lineageos_max_file_mb: 10
+lineageos_output_root: datasets/public/lineageos_tree
+lineageos_include_extensions:
+  - .java
+  - .kt
+  - .cpp
+  - .c
+  - .h
+  - .mk
+  - .bp
+  - .sh
+  - .py
+  - .rc
+  - .te
+lineageos_skip_dirs:
+  - .repo
+  - .git
+  - out
+  - prebuilts
+lineageos_max_files: 200000
+
+# Download guards (apply to every scraper)
+download_max_file_mb: 500
+download_max_total_gb: 50
+download_retry_attempts: 4
+download_retry_backoff_seconds: 3
+download_timeout_seconds: 900
+download_workers: 2
+download_log_file: scrapers/logs/download.log
+download_status_file: scrapers/logs/status.json
+
+## Upload
+
+hf_upload_repo_prefix: michaelowusuntim6
+hf_upload_private: false
+hf_upload_commit_message_prefix: "v1"
+hf_upload_readme_template: scrapers/huggingface/README.template.md
+
 ## Formatted_datasets
 
 # Output of datasets/scripts/format_for_training.py (canonical Qwen3.5
@@ -97,7 +178,9 @@ min_chars: 32
 max_chars: 64000
 enable_thinking: false
 seed: 42
-chat_template_source: models/Qwen3.5-0.8B/tokenizer_config.json#chat_template
+# The chat template lives in the "chat_template" key of this file (identical
+# to models/Qwen3.5-0.8B/chat_template.jinja).
+chat_template_source: models/Qwen3.5-0.8B/tokenizer_config.json
 
 ## Training
 
@@ -137,6 +220,9 @@ max_length: 8192
 # never fully materialised). 256 -> ~380 MB of transient logits per chunk.
 chunk_size: 256
 gradient_checkpointing: true
+# Optimizer for expert LoRA training (adamw | adafactor). Adafactor keeps
+# O(rank) state instead of Adam's two full accumulators per parameter.
+optimizer: adafactor
 save_strategy: epoch
 save_total_limit: 1
 output_dir: training/adapters

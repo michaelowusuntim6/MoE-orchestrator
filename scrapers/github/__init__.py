@@ -1,0 +1,3 @@
+"""GitHub repository scrapers."""
+
+__version__ = "1.0.0"

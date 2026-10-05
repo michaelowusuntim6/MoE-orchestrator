@@ -1,6 +1,6 @@
 # MoE Orchestrator — master TODO list
 
-Last updated: 2026-10-04T23:10:00Z
+Last updated: 2026-10-05T10:30:00Z
 Current phase: 2 (data formatted for training; expert plan written)
 Last completed step: 1.6 training-memory fix — 8192-token step verified on CPU
 
@@ -53,6 +53,21 @@ Last completed step: 1.6 training-memory fix — 8192-token step verified on CPU
 - [x] 1.6.6 Raise max_length 1024 -> 8192 in config.md
 - [x] 1.6.7 Re-run tokenize-and-drop: coding_debug 98% -> 7.5% truncation
 - [x] 1.6.8 Tests: tests/test_chunked_ce.py (5 passing, exact parity)
+
+## Phase 1.7 — Dataset acquisition infrastructure
+- [x] 1.7.1 Create scrapers/{github,huggingface,lineageos}/ with READMEs
+- [x] 1.7.2 Update config.md with every scraper tunable (## Scrapers, ## Upload)
+- [x] 1.7.3 Extend orchestrator/config.py (get_str, get_path, [] literal, clean errors)
+- [x] 1.7.4 hf_search.py (keyword search -> scrapers/logs/hf_search_results.json)
+- [x] 1.7.5 hf_downloader.py (guarded, resumable, 500 MB per-file rule)
+- [x] 1.7.6 github_scraper.py (clone + prune oversized files -> _truncated.json)
+- [x] 1.7.7 lineageos_walker.py (read-only catalog, device paths first)
+- [x] 1.7.8 aosp_scraper.py (AOSP snippet records from the local tree)
+- [x] 1.7.9 hf_uploader.py + README.template.md (for Prompt 3)
+- [x] 1.7.10 Populate dataset_list.md (10 verified) and repo_list.md (7 verified)
+- [x] 1.7.11 docs/DATASET_SOURCES.md with verified sizes
+- [x] 1.7.12 tests/test_scrapers.py (14 passing)
+- [x] 1.7.13 All four dry-runs pass (hf_search, hf_downloader, github, lineageos)
 
 ## Phase 3 — Fine-tune experts
 - [ ] 3.1 Fine-tune the first expert with `training/finetune.py`
@@ -130,6 +145,14 @@ contains LoFT's sources. Upstream tracking is manual and documented in
 [23:00:00] max_length raised 1024 -> 8192; tokenize-and-drop: all categories 0% truncation except coding_debug 7.5% (was 98%)
 [23:05:00] docs/DATA_PIPELINE.md §7 and docs/EXPERT_PLAN.md rewritten with the new numbers; tests/test_chunked_ce.py added
 [23:10:00] debug_review unblocked
+[2026-10-05 10:05] Step 0: verified commit 7075b3a, clean tree; config.md has 9 sections; LineageOS tree present with .repo/vendor/device/kernel; HF_TOKEN set, GITHUB_TOKEN not set
+[10:10:00] Created scrapers/ structure + common.py (shared config, size-limit predicate, RunLog, status writer)
+[10:15:00] Extended orchestrator/config.py with get_str/get_path; audited every config path
+[10:20:00] Added ## Scrapers and ## Upload to config.md (500 MB per-file ceiling in three places)
+[10:25:00] Built hf_search.py, hf_downloader.py, github_scraper.py, lineageos_walker.py, aosp_scraper.py, hf_uploader.py
+[10:30:00] Verified 10 HF datasets (1 x 404 removed) and 7 GitHub repos (0 x 404) via API; wrote dataset_list.md + repo_list.md with sizes
+[10:35:00] lineageos_walker --dry-run: 200,000 files / 2.0 GB matched in 4m43s, 50,686 device-specific, 23 files > 10 MB skipped
+[10:40:00] tests/test_scrapers.py: 14 passing; all four scraper dry-runs pass; no datasets downloaded
 
 [19:40:00] AUDIT: verified one commit (372b863), tree clean, 143 datasets downloaded
 [19:41:00] A.5 download integrity: 143/143 OK dirs present and non-empty, 0 missing, 0 empty, 0 untracked dirs; real on-disk size 9.44 GiB (API estimate 14.75 GiB)
@@ -156,6 +179,11 @@ contains LoFT's sources. Upstream tracking is manual and documented in
   the historical log.
 
 ## Blockers
+
+- NOTE (not a blocker): `LineageOS/android_kernel_samsung_exynos850` is
+  2201 MB, just over the 2048 MB `github_max_repo_mb` default. It is the most
+  valuable kernel source for the A04s, so it is kept in repo_list.md and must
+  be cloned with `--allow-large` (or by raising `github_max_repo_mb`).
 
 - BLOCKER (resolved): `kernel` folded into the `linux_kernel` expert together
   with `linux` + `generated_lineageos` (25,467 records).
