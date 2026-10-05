@@ -19,9 +19,38 @@ https://colab.research.google.com/github/michaelowusuntim6/MoE-orchestrator/blob
 Set `DATASETS` in the config cell:
 
 - Single dataset: `DATASETS = "code-review-qwen35"`
-- Concatenate (sequential): `DATASETS = ["code-review-qwen35", "debug-qwen35"]`
-- Weighted interleave (recommended): `DATASETS = {"code-review-qwen35": 0.6, "debug-qwen35": 0.4}`
-  (weights must sum to 1.0)
+- Exhaustive mix (recommended): `DATASETS = ["code-review-qwen35", "debug-qwen35"]`
+
+The list form now runs through the deterministic exhaust-all mixer below.
+The older weighted-dict form (`{"name": weight}`) is deprecated — it could
+drop or duplicate records, so keep it only for old notebooks.
+
+## Dataset mixing (exhaust-all)
+
+Set `DATASETS` to a list of any of the 30 published datasets. The mixer sorts
+them by size, uses the smallest as the ratio anchor, truncates each ratio to a
+whole number, interleaves the whole-number slices, and appends the truncated
+decimals at the end so every record from every dataset is used exactly once.
+
+Example — 435k and 100k records:
+
+```
+ratios:     4.35, 1.00
+wholes:     4, 1
+extras:     0.35, 0.00
+whole mix:  500,000 records interleaved 4:1
+extras:      35,000 records appended
+final:      535,000 records
+```
+
+The mixing is deterministic given `SEED` (3407). Setting `DATASETS` to a single
+string skips mixing entirely.
+
+To preview the plan without loading anything:
+
+```bash
+python -m orchestrator.dataset_mixer code-review-qwen35 debug-qwen35
+```
 
 ## Pushing the trained adapter
 

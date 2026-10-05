@@ -167,3 +167,23 @@ All 30 corpora are live under `michaelowusuntim6`; full links in
 
 Sampled corpora (500 MB streamed) are marked above; everything else is the
 complete formatted set.
+
+## Recommended dataset combinations
+
+Exhaust-all list form (reference only — the user picks the final combinations).
+Feed the list straight into `DATASETS` in either training notebook; the mixer
+uses every record exactly once.
+
+| expert | `DATASETS` list |
+|---|---|
+| android_rom | `["android-qwen35", "lineageos-tree-qwen35", "lineageos-support-qwen35", "lineageos-generated-qwen35"]` |
+| linux_kernel | `["kernel-qwen35", "linux-qwen35", "kernel-vuln-qwen35", "kernel-vuln-full-qwen35", "kernel-syzfix-qwen35", "linux-kernel-commits-qwen35", "linux-kernel-asm-qwen35", "linux-kernel-ioctl-qwen35"]` |
+| mql5_forex | `["mql5-repos-qwen35", "mql5-expanded-qwen35", "mql5-generated-qwen35", "forex-calendar-qwen35"]` |
+| python_code | `["python-qwen35", "python-codeparrot-qwen35"]` |
+| cpp_code | `["cpp-qwen35"]` |
+| security | `["security-qwen35", "security-qa-qwen35", "security-expanded-qwen35", "android-malware-qwen35"]` |
+| debug_review | `["debug-qwen35", "code-review-qwen35"]` |
+| agent_tool | `["agent-tool-qwen35"]` |
+
+`kernel-davinci-qwen35` and `uncategorized-qwen35` are deliberately left out of
+the recommended expert lists (GPU-only, and unassigned grab bag respectively).

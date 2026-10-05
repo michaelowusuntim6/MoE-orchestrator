@@ -24,6 +24,23 @@ PUSH_TO_HUB = True
 
 Adapters are pushed to `michaelowusuntim6/<expert-name>-lora`.
 
+## Dataset mixing
+
+The notebooks use `orchestrator.dataset_mixer.smart_mix` to exhaust every
+record across any combination of the 30 datasets. Set `DATASETS` to a list of
+names — the mixer handles the rest.
+
+Preview the plan without loading:
+
+```bash
+python -m orchestrator.dataset_mixer <name1> <name2> ...
+```
+
+The algorithm sorts by size, truncates each ratio to a whole number, interleaves
+the whole-number slices, and appends the truncated decimals in descending size
+order, so nothing is dropped or duplicated. It is deterministic given `SEED`
+(3407).
+
 ## Dataset integrity
 
 All 30 datasets are validated by `scripts/verify_hf_datasets.py`:
