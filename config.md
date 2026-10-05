@@ -216,6 +216,44 @@ quantization_options:
   - 4bit
 bitsandbytes_available: true   # bitsandbytes 0.50.2 installed; 8bit/4bit need a CUDA GPU
 
+## HF_Upload
+
+repo_prefix: michaelowusuntim6
+upload_private: false
+upload_commit_message_prefix: "v1"
+hf_dataset_url_template: https://huggingface.co/datasets/{prefix}/{name}
+uploaded:
+  android: android-qwen35
+  lineageos_tree: lineageos-tree-qwen35
+  supportbench_lineageos: lineageos-support-qwen35
+  android_malware: android-malware-qwen35
+  generated_lineageos: lineageos-generated-qwen35
+  kernel: kernel-qwen35
+  linux: linux-qwen35
+  kernel_vuln: kernel-vuln-qwen35
+  kernel_syzfix_sample: kernel-syzfix-qwen35
+  kernel_vuln_full_sample: kernel-vuln-full-qwen35
+  linux_kernel_commits: linux-kernel-commits-qwen35
+  linux_kernel_assembly: linux-kernel-asm-qwen35
+  linux_kernel_ioctl: linux-kernel-ioctl-qwen35
+  kernel_davinci: kernel-davinci-qwen35
+  mql5_repos: mql5-repos-qwen35
+  mql5_expanded: mql5-expanded-qwen35
+  mql5_benchmark: mql5-compile-benchmark
+  forex_calendar: forex-calendar-qwen35
+  generated_mql5: mql5-generated-qwen35
+  python: python-qwen35
+  cpp: cpp-qwen35
+  code_review: code-review-qwen35
+  coding_debug: debug-qwen35
+  python_codeparrot_sample: python-codeparrot-qwen35
+  security_data: security-qwen35
+  security_qa: security-qa-qwen35
+  security_expanded: security-expanded-qwen35
+  agent_tool: agent-tool-qwen35
+  reasoning_algorithms: reasoning-qwen35
+  uncategorized: uncategorized-qwen35
+
 ## Formatted_datasets
 
 # Output of datasets/scripts/format_for_training.py (canonical Qwen3.5

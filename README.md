@@ -157,3 +157,14 @@ The full inventory (21 categories, 2,604,368 records) is
 The project now holds **30 categories / 2,987,415 records**. Precision,
 memory and where-to-run guidance is in
 [`docs/TRAINING_RUNBOOK.md`](docs/TRAINING_RUNBOOK.md).
+
+## Datasets on Hugging Face
+
+All 30 formatted corpora are published at
+<https://huggingface.co/michaelowusuntim6>.
+
+See [`docs/HF_UPLOAD_GUIDE.md`](docs/HF_UPLOAD_GUIDE.md) for the full list with
+links, record counts, sources and licences.
+
+Train on Colab: [`notebooks/qwen35_0.8b_colab.ipynb`](notebooks/qwen35_0.8b_colab.ipynb)
+(Kaggle P100 variant: [`notebooks/qwen35_0.8b_kaggle.ipynb`](notebooks/qwen35_0.8b_kaggle.ipynb)).

@@ -1,6 +1,6 @@
 # MoE Orchestrator — master TODO list
 
-Last updated: 2026-10-05T14:40:00Z
+Last updated: 2026-10-05T16:30:00Z
 Current phase: 2 (data formatted for training; expert plan written)
 Last completed step: 1.6 training-memory fix — 8192-token step verified on CPU
 
@@ -102,6 +102,24 @@ Last completed step: 1.6 training-memory fix — 8192-token step verified on CPU
 - [x] 1.11.4 docs/TRAINING_RUNBOOK.md written (memory vs quality trade-off)
 - [x] 1.11.5 Smoke test passes with --quantization fp32
 - [x] 1.11.6 tests/test_quantization.py (8 passing)
+
+## Phase 1.12 — Hugging Face upload
+- [x] 1.12.1 Wrote 30 dataset cards with frontmatter, attribution and licence
+- [x] 1.12.2 Added the [HF_Upload] mapping to config.md
+- [x] 1.12.3 Pre-upload check: 0 existing repos, 30 new
+- [x] 1.12.4 Dry run verified (keeps the curated card, does not overwrite)
+- [x] 1.12.5 Fixed the frontmatter licence bug that made HF reject 25 uploads
+- [x] 1.12.6 upload_all.sh (smallest first, one at a time, logged)
+- [x] 1.12.7 Uploaded all 30 corpora to michaelowusuntim6
+- [x] 1.12.8 All 30 verified loadable via datasets.load_dataset
+
+## Phase 1.13 — Training notebooks
+- [x] 1.13.1 notebooks/qwen35_0.8b_colab.ipynb (T4, bf16 LoRA)
+- [x] 1.13.2 notebooks/qwen35_0.8b_kaggle.ipynb (P100, fp16 + 4-bit QLoRA)
+- [x] 1.13.3 notebooks/qwen35_moe_composition.ipynb (template)
+- [x] 1.13.4 notebooks/upload_to_hf.ipynb (helper)
+- [x] 1.13.5 notebooks/README.md
+- [x] 1.13.6 docs/HF_UPLOAD_GUIDE.md
 
 ## Phase 3 — Fine-tune experts
 - [ ] 3.1 Fine-tune the first expert with `training/finetune.py`
@@ -209,6 +227,12 @@ contains LoFT's sources. Upstream tracking is manual and documented in
 [14:20:00] tokenize-and-drop: all new categories <=13.5% truncation except kernel_davinci (100%, documented)
 [14:30:00] bitsandbytes 0.50.2 installed; --quantization {fp32,bf16,8bit,4bit} added; fp32 smoke PASS
 [14:40:00] docs/TRAINING_RUNBOOK.md + tests/test_quantization.py (8 passing)
+[15:10:00] Wrote 30 dataset cards (scrapers/huggingface/make_cards.py) and the [HF_Upload] mapping
+[15:20:00] Pre-upload check: 0 existing repos / 30 new; dry run kept the curated card
+[15:30:00] First upload run exposed Invalid metadata in README.md — HF rejects non-canonical `license:` values; mapped them to valid ids (mixed -> other)
+[15:45:00] upload_all.sh (smallest-first, sequential, logged) launched
+[16:10:00] Created 4 notebooks + notebooks/README.md
+[16:25:00] docs/HF_UPLOAD_GUIDE.md generated from the manifests (2,987,415 records)
 
 [19:40:00] AUDIT: verified one commit (372b863), tree clean, 143 datasets downloaded
 [19:41:00] A.5 download integrity: 143/143 OK dirs present and non-empty, 0 missing, 0 empty, 0 untracked dirs; real on-disk size 9.44 GiB (API estimate 14.75 GiB)

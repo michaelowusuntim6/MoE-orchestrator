@@ -45,6 +45,10 @@ def parse_args(argv=None):
     parser.add_argument("--category", default=None, help="Card tag/category")
     parser.add_argument("--repo-id", default=None,
                         help="Override <prefix>/<name> entirely")
+    parser.add_argument("--commit-message", default=None,
+                        help="Commit message (default: <prefix>: upload <name>)")
+    parser.add_argument("--force-card", action="store_true",
+                        help="Overwrite an existing README.md with the rendered template")
     return parser.parse_args(argv)
 
 
@@ -100,6 +104,7 @@ def main(argv=None) -> int:
     token_env = cfg.get_str("Scrapers", "hf_token_env", "HF_TOKEN")
     token = os.environ.get(token_env) or None
     commit_prefix = cfg.get_str(upload, "hf_upload_commit_message_prefix", "v1")
+    commit_message = args.commit_message or f"{commit_prefix}: upload {args.name}"
 
     files = sorted(p for p in folder.rglob("*") if p.is_file())
     size = sum(p.stat().st_size for p in files)
@@ -110,8 +115,14 @@ def main(argv=None) -> int:
     print(f"files        : {len(files)}  ({human_bytes(size)})")
     print(f"records      : {count_records(folder):,}")
     print(f"token        : {'set' if token else 'NOT SET (%s)' % token_env}")
-    print(f"commit msg   : {commit_prefix}: upload {args.name}")
-    print(f"README.md    : {len(card)} chars rendered from the template")
+    existing_card = folder / "README.md"
+    card_is_kept = existing_card.is_file() and not args.force_card
+    print(f"commit msg   : {commit_message}")
+    if card_is_kept:
+        print(f"README.md    : keeping the existing curated card "
+              f"({existing_card.stat().st_size} bytes)")
+    else:
+        print(f"README.md    : {len(card)} chars rendered from the template")
 
     if args.dry_run:
         print("\n--dry-run: would write README.md to the folder and call\n"
@@ -130,10 +141,11 @@ def main(argv=None) -> int:
         api = HfApi(token=token)
         api.create_repo(repo_id=repo_id, repo_type="dataset", private=private,
                         exist_ok=True)
-        (folder / "README.md").write_text(card, encoding="utf-8")
+        if not card_is_kept:
+            (folder / "README.md").write_text(card, encoding="utf-8")
         api.upload_folder(repo_id=repo_id, folder_path=str(folder),
                           repo_type="dataset",
-                          commit_message=f"{commit_prefix}: upload {args.name}")
+                          commit_message=commit_message)
     except Exception as exc:
         print(f"error: upload failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1

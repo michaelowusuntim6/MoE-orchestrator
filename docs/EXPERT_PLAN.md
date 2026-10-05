@@ -147,3 +147,23 @@ graduate from `mql5_optional` to a full expert. `debug_review` doubles in size
 `kernel_davinci` is excluded from the laptop training plan: 100% of its
 records truncate at `max_length = 8192`. Train it on a GPU with a larger
 context and 8-bit weights (`docs/TRAINING_RUNBOOK.md`).
+
+## Published HF corpora per expert
+
+All 30 corpora are live under `michaelowusuntim6`; full links in
+`docs/HF_UPLOAD_GUIDE.md`.
+
+| expert | HF repos | notes |
+|---|---|---|
+| `android` | `android-qwen35`, `lineageos-tree-qwen35`, `lineageos-support-qwen35`, `lineageos-generated-qwen35` | full (+ 185k source-tree records) |
+| `linux_kernel` | `kernel-qwen35`, `linux-qwen35`, `kernel-vuln-qwen35`, `kernel-syzfix-qwen35` (sample), `kernel-vuln-full-qwen35` (sample), `linux-kernel-commits-qwen35`, `linux-kernel-asm-qwen35`, `linux-kernel-ioctl-qwen35`, `kernel-davinci-qwen35` | two are 500 MB samples; `kernel-davinci-qwen35` **needs GPU** |
+| `mql5_optional` → `mql5` | `mql5-repos-qwen35`, `mql5-expanded-qwen35`, `mql5-generated-qwen35`, `forex-calendar-qwen35`, `mql5-compile-benchmark` | the last is an **eval set**, not training data |
+| `code_python` | `python-qwen35`, `python-codeparrot-qwen35` | the second is a 500 MB sample |
+| `code_cpp` | `cpp-qwen35` | full |
+| `debug_review` | `debug-qwen35`, `code-review-qwen35` | full |
+| `security` | `security-qwen35`, `security-qa-qwen35`, `security-expanded-qwen35`, `android-malware-qwen35` | full |
+| `agent_tool` / `reasoning` | `agent-tool-qwen35`, `reasoning-qwen35` | full |
+| unassigned | `uncategorized-qwen35` | grab bag, router/mixing only |
+
+Sampled corpora (500 MB streamed) are marked above; everything else is the
+complete formatted set.
